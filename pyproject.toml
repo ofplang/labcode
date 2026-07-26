@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labcode"
+description = "labcode -- a dialect wrapper over the Object-Flow Programming Language toolchain"
+requires-python = ">=3.10"
+dynamic = ["version"]
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Kazunari Kaizu", email = "kwaizu@gmail.com" }]
+keywords = ["ofplang", "labcode", "dataflow", "workflow", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Compilers",
+    "Typing :: Typed",
+]
+# labcode is a thin dispatcher: it bundles the toolchain by depending on the
+# ofplang sibling packages and forwards each subcommand to their CLIs in-process.
+# Siblings are resolved from PyPI; the lower bound matches the sibling-to-sibling
+# convention (`>=0.1.0`). At this version labcode adds no behavior beyond routing.
+dependencies = [
+    "ofplang-validate>=0.1.0",
+    "ofplang-schedule>=0.1.0",
+    "ofplang-run>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ofplang/labcode"
+Repository = "https://github.com/ofplang/labcode"
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.16", "mypy>=1.11"]
+
+[project.scripts]
+# The labcode command. Subcommands (`lc validate|schedule|run`) forward to the
+# ofplang sibling packages' own CLIs.
+lc = "labcode.cli:main"
+
+# Version is derived from git tags (e.g. `v0.0.1`) by setuptools-scm. Until the
+# first tag exists, fall back to a static placeholder so a source/editable tree
+# still builds and reports a version.
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+# labcode is an ordinary top-level package (it has an __init__.py); this
+# distribution provides only the `labcode` package.
+[tool.setuptools.packages.find]
+include = ["labcode*"]
+
+# Ship the PEP 561 marker so downstreams see this package as typed.
+[tool.setuptools.package-data]
+"labcode" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["labcode"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
