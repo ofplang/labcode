@@ -10,14 +10,31 @@ ofplang toolchain and exposes it under a single command:
 ```sh
 lc validate ...   # check a workflow is well-formed portable v0
 lc schedule ...   # compute a schedule for a workflow
-lc run ...        # execute a workflow (rolling-horizon runner / simulator)
+lc run ...        # execute a workflow on the labcode backend
 ```
 
 labcode is where a site-specific dialect and a custom runner (real lab hardware)
-are developed on top of the ofplang toolchain. At this version `lc` is a thin
-dispatcher that forwards each subcommand to the ofplang siblings **unchanged**;
-the dialect and custom-runner behavior will land in later versions, replacing
-individual subcommands behind the same interface.
+are developed on top of the ofplang toolchain. `lc validate` and `lc schedule`
+forward to the ofplang siblings unchanged; **`lc run` is the labcode dialect's own
+runner**: it drives the workflow on the labcode backend, running each device
+operation's script — supplied in the environment as an `x-labcode.script` extension
+on a process mode — out-of-process on a wall clock, so a long-running real operation
+never blocks the replan loop. See [`SPECIFICATIONS.md`](SPECIFICATIONS.md) for the
+`x-labcode` extension.
+
+```yaml
+# in the execution environment: how a (process, mode) is carried out
+processes:
+  measure_od:
+    modes:
+      - id: v0
+        duration: 45
+        x-labcode:
+          script:
+            language: python
+            code: |
+              return {"od": read_plate(plate)}
+```
 
 ## Install
 

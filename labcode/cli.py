@@ -6,11 +6,13 @@ forwarded to a sibling package's own CLI, in-process::
 
     lc validate ...  ->  ofplang.validate.cli.main
     lc schedule ...  ->  ofplang.schedule.cli.main
-    lc run ...       ->  ofplang.run.cli.main
+    lc run ...       ->  labcode.run_cli.main       (labcode dialect backend)
 
-At this version ``lc`` forwards to the ofplang siblings unchanged (no dialect
-behavior yet). The seam -- routing each subcommand independently -- is where the
-labcode dialect and its custom runner will later diverge. Each subcommand keeps
+``validate`` and ``schedule`` still forward to the ofplang siblings unchanged;
+``run`` is the labcode dialect's own entry (`labcode.run_cli`): it drives the workflow
+on the labcode backend (env ``x-labcode`` device scripts, run out-of-process on a wall
+clock) and adds the dialect front door. The seam -- routing each subcommand
+independently -- is where further dialect behavior will diverge. Each subcommand keeps
 its own options, exit codes, and ``--help``; ``lc`` adds no behavior of its own
 beyond routing plus a top-level ``--help``/``--version``.
 """
@@ -30,7 +32,7 @@ from collections.abc import Sequence
 _SUBCOMMANDS: dict[str, str] = {
     "validate": "ofplang.validate.cli",
     "schedule": "ofplang.schedule.cli",
-    "run": "ofplang.run.cli",
+    "run": "labcode.run_cli",
 }
 
 _USAGE = """\

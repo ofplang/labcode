@@ -24,14 +24,15 @@ classifiers = [
     "Topic :: Software Development :: Compilers",
     "Typing :: Typed",
 ]
-# labcode is a thin dispatcher: it bundles the toolchain by depending on the
-# ofplang sibling packages and forwards each subcommand to their CLIs in-process.
-# Siblings are resolved from PyPI; the lower bound matches the sibling-to-sibling
-# convention (`>=0.1.0`). At this version labcode adds no behavior beyond routing.
+# labcode bundles the toolchain by depending on the ofplang sibling packages. `lc run`
+# is now the labcode dialect backend, so the floors reflect what it needs: run's
+# SubprocessBackend + run_workflow front door (>=0.1.4) and schedule's env x- extension
+# tolerance so an x-labcode environment is accepted (>=0.1.2). `validate` and `schedule`
+# subcommands still forward unchanged.
 dependencies = [
     "ofplang-validate>=0.1.0",
-    "ofplang-schedule>=0.1.0",
-    "ofplang-run>=0.1.0",
+    "ofplang-schedule>=0.1.2",
+    "ofplang-run>=0.1.4",
 ]
 
 [project.urls]
