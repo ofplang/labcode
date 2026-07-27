@@ -14,10 +14,11 @@ load ──[move]──> read ──[move]──> store
   measurement `od`. The Plate is created inside the workflow, so no run boundary is needed.
 - [`plate_line.env.yaml`](plate_line.env.yaml) is the **labcode environment** — it says
   *how* each step is carried out, as an `x-labcode.script` (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md)).
-  **Every process mode and every transport route carries a script**: the process scripts
-  return the Object views (`load` makes the Plate, `read` passes the same plate through and
-  adds `od`, `store` takes it); the transport scripts perform the move and may read the
-  moved Plate's `view` (its barcode).
+  **Every process mode and every transport route carries a script**: `load` makes the
+  Plate, `read` measures `od` (the Plate is carried through automatically by `objects.map`,
+  so the script returns only what it computes — labcode's *partial outputs*, see the spec),
+  `store` takes it; the transport scripts perform the move and may read the moved Plate's
+  `view` (its barcode).
 
 labcode runs each script **out-of-process** on a wall clock, discovering completion by
 polling — so a real, slow device operation never blocks the runner.

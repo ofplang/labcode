@@ -24,10 +24,17 @@ polled at a human-observable cadence, not sub-second (which would flood the repl
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 
-from ofplang.run.simulator import SubprocessBackend
+from ofplang.run.simulator import (
+    DeviceComputationError,
+    SubprocessBackend,
+    default_device_model,
+)
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
@@ -97,20 +104,67 @@ def make_transport_resolver(environment: dict) -> Callable:
     return resolver
 
 
+def _labcode_child_spawn(job: dict):
+    """Launch the labcode child (`python -m labcode._child`), feeding the job JSON on
+    stdin. Same shape as ofplang-run's default spawn (result via ``job["result_path"]``,
+    stderr captured), but runs the labcode partial-output child."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "labcode._child"],
+        stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(job))
+    proc.stdin.close()
+    return proc
+
+
 class LabcodeBackend(SubprocessBackend):
-    """A `SubprocessBackend` that also runs *transport* scripts out-of-process.
+    """A `SubprocessBackend` for the labcode dialect: partial process outputs + transport
+    execution.
 
-    The base backend runs processing scripts (via its resolver) and leaves transports
-    timed. labcode adds transport execution: a dispatched transport whose env route
-    carries an ``x-labcode.script`` runs that script in a child process, with the physical
-    route and the moved Object's view bound as locals (``from_spot`` / ``to_spot`` /
-    ``transporter`` / ``view``). It reuses the upstream machinery entirely -- the shared
-    `_start_child_op` launches it, and the settle loop completes it (moving material) or
-    fails it on a child error (ofplang-run >= 0.1.6) -- so only dispatch is overridden."""
+    Two dialect behaviours on top of the base backend:
 
-    def __init__(self, environment, *, transport_resolver: Callable | None = None, **kwargs):
-        super().__init__(environment, **kwargs)
+    * **Transport execution.** A dispatched transport whose env route carries an
+      ``x-labcode.script`` runs it in a child process, with the physical route and the
+      moved Object's view bound as locals (``from_spot`` / ``to_spot`` / ``transporter`` /
+      ``view``). It reuses the upstream machinery -- `_start_child_op` launches it and the
+      settle loop completes / fails it (ofplang-run >= 0.1.6) -- so only dispatch is added.
+    * **Partial process outputs** (SPECIFICATIONS.md §1.2). A process script returns only
+      the outputs it computes; `_resolve_model` fills the rest from `default_device_model`
+      (carrying an Object output via ``objects.map``, defaulting the others) and merges the
+      script's values on top. A returned name that is not a declared output is an error.
+      This needs the partial-tolerant `labcode._child` (the default `spawn`), since the
+      upstream child verifies outputs exactly."""
+
+    def __init__(
+        self, environment, *, transport_resolver: Callable | None = None, spawn=None, **kwargs
+    ):
+        super().__init__(environment, spawn=spawn or _labcode_child_spawn, **kwargs)
         self._transport_resolver = transport_resolver or (lambda *args: None)
+
+    def _resolve_model(self, process, mode, inputs, output_schema, definition):
+        """The value model `_complete` calls at completion: merge the script's *partial*
+        outputs onto the defaults (§1.2). `default_device_model` supplies the base
+        (``objects.map`` Object carry + typed defaults); the script's returned values
+        override it. A returned name outside `output_schema` is a runtime failure; a timed
+        op (no child) or a child error is handled as in the base backend."""
+        pending = self._pending
+        if not isinstance(pending, dict):  # the _TIMED sentinel: no child ran
+            return default_device_model(process, mode, inputs, output_schema, definition)
+        if "error" in pending:
+            err = pending["error"]
+            raise DeviceComputationError(
+                err.get("message", "child failed"), code=err.get("code", "child_error")
+            )
+        raw = pending.get("outputs") or {}
+        extra = set(raw) - set(output_schema or {})
+        if extra:
+            raise DeviceComputationError(
+                f"script process {process!r} returned undeclared output names {sorted(extra)}",
+                code="script_output_names",
+            )
+        base = default_device_model(process, mode, inputs, output_schema, definition)
+        return {**base, **raw}
 
     def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
         uuid = super().dispatch_transport(

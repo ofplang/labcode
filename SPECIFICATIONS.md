@@ -43,9 +43,30 @@ still validates and schedules as plain v0. Only labcode interprets it.
 
 The script runs as the body of a function whose parameters are the operation's **input
 port names**, each bound to that port's view value (Pure Data or an Object's view record)
-— identical to a v0 §22 `python_script_processes` script. It MUST `return` a mapping of
-the declared **output port** names to their view values, each conforming to its declared
-type (verified exactly as §22.2). External `import` is allowed; there is no sandbox.
+— as in a v0 §22 `python_script_processes` script. External `import` is allowed; there is
+no sandbox.
+
+**Partial outputs.** Unlike v0 §22.2 (which requires the script to return *every* output
+exactly), a labcode process script `return`s only the outputs it **computes** — a subset.
+The backend fills the rest:
+
+- an Object output declared in `objects.map` is **carried from its input** (the same
+  Object, its view unchanged) — so a pass-through need not restate it;
+- any other unset output gets a **typed default** for its type.
+
+The script's returned values override these. Each returned value must conform to its port's
+type, and **returning a name that is not a declared output is an error** (this catches a
+typo'd output name). A §22.2-strict script — one that returns every output explicitly —
+works unchanged.
+
+So for `read` (input `plate`, outputs `plate` via `objects.map` + `od`), all three are
+equivalent to returning `{"plate": plate, "od": 0.42}`… except the defaulted forms:
+
+```python
+return {"plate": plate, "od": 0.42}   # explicit
+return {"od": 0.42}                    # plate carried by objects.map
+return {}                              # plate carried; od defaults to 0.0
+```
 
 ### 1.3 `x-labcode` on a transport route
 

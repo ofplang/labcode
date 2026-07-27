@@ -12,6 +12,7 @@ from labcode import run_cli
 from labcode.backend import labcode_backend_factory
 
 FIX = Path(__file__).parent / "fixtures"
+EXAMPLES = Path(__file__).parent.parent / "examples"
 WF = str(FIX / "device_script.workflow.yaml")
 ENV = str(FIX / "device_script.env.yaml")
 TWF = str(FIX / "transport.workflow.yaml")
@@ -112,6 +113,34 @@ def test_e2e_failing_transport_script_fails_the_run(tmp_path):
     assert runner.failed
     assert runner.failure is not None
     assert "gripper stuck" in (runner.failure.detail or "")
+
+
+def test_e2e_partial_read_carries_the_plate(tmp_path):
+    # The plate_line example, with `read` returning {} (fully partial): the Plate is still
+    # carried through (objects.map) so the line completes, and od takes its typed default.
+    # Exercises the labcode child (raw partial) + _resolve_model merge end to end.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    from ofplang.run.runner import RollingRunner
+
+    env = tmp_path / "env.yaml"
+    env.write_text(
+        (EXAMPLES / "plate_line.env.yaml").read_text(encoding="utf-8").replace(
+            'return {"od": 0.42}', "return {}"
+        ),
+        encoding="utf-8",
+    )
+    clock = FakeClock()
+    factory = labcode_backend_factory(
+        seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep
+    )
+    runner = RollingRunner(
+        str(EXAMPLES / "plate_line.workflow.yaml"), str(env),
+        backend_factory=factory, random_seed=0, running_task_margin=1,
+    )
+    status = runner.run()
+    assert not runner.failed
+    assert all(a["status"] == "completed" for a in status["activities"])  # plate reached store
+    assert runner.outputs == {"od": 0.0}  # od defaulted
 
 
 def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
