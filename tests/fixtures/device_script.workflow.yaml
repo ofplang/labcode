@@ -1,0 +1,26 @@
+# A minimal labcode-dialect workflow: one atomic process `measure` produces a Float,
+# with NO workflow `script` -- the code that computes it lives in the environment
+# (device_script.env.yaml) as an `x-labcode.script` (labcode's (2), not v0 §22's (1)).
+spec_version: "0.0"
+
+processes:
+
+  measure:
+    kind: atomic
+    inputs: {}
+    outputs:
+      od: { type: Float, phase: data }
+
+  main:
+    kind: composite
+    inputs: {}
+    outputs:
+      od: { type: Float, phase: data }
+    body:
+      nodes:
+        - id: M
+          process: measure
+      returns:
+        od: { from: M.od }
+
+entry: main
