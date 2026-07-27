@@ -1,0 +1,71 @@
+# A small labcode example: a Plate flows down a three-station line and a measurement
+# is read off it. Every step's *how* -- both the device operations and the moves --
+# is supplied by the environment as an `x-labcode.script` (see plate_line.env.yaml);
+# this file is portable ofplang v0 (it says only *what* happens).
+#
+#   load ──[move]──> read ──[move]──> store
+#
+# `read` is Object-bearing: it takes the Plate in and passes the *same* Plate out
+# (objects.map -- identity preserved), while also producing a Pure Data measurement
+# `od`. So an Object and a data value flow together (cf. examples/plate_chain in
+# ofplang-run). The Plate is created inside the workflow, so no run boundary is needed.
+spec_version: "0.0"
+
+types:
+  Plate:
+    domain: object
+    view:
+      barcode: { type: String }
+
+processes:
+
+  # A source device: put a fresh Plate on the line.
+  load:
+    kind: atomic
+    outputs:
+      plate: { type: Plate, phase: data }
+    objects:
+      create: [outputs.plate]
+
+  # Object-bearing measurement: the Plate goes in and the *same* Plate comes out
+  # (objects.map), and its optical density `od` is measured as Pure Data.
+  read:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate: { type: Plate, phase: data }   # same name as the input: the same plate
+      od:    { type: Float, phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # A sink device: take the Plate off the line.
+  store:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    objects:
+      consume: [inputs.plate]
+
+  main:
+    kind: composite
+    inputs: {}
+    outputs:
+      od: { type: Float, phase: data }
+    body:
+      nodes:
+        - id: Load
+          process: load
+        - id: Read
+          process: read
+          state:
+            plate: { from: Load.plate }    # Object arc (a move is scheduled for it)
+        - id: Store
+          process: store
+          state:
+            plate: { from: Read.plate }
+      returns:
+        od: { from: Read.od }
+
+entry: main
