@@ -25,14 +25,15 @@ classifiers = [
     "Typing :: Typed",
 ]
 # labcode bundles the toolchain by depending on the ofplang sibling packages. `lc run`
-# is now the labcode dialect backend, so the floors reflect what it needs: run's
-# SubprocessBackend + run_workflow front door (>=0.1.4) and schedule's env x- extension
-# tolerance so an x-labcode environment is accepted (>=0.1.2). `validate` and `schedule`
-# subcommands still forward unchanged.
+# is the labcode dialect backend, so the floors reflect what it needs: run's
+# SubprocessBackend + run_workflow front door + out-of-process transport execution
+# (_start_child_op / child kind=transport / transport child-error handling, >=0.1.6) and
+# schedule's env x- extension tolerance so an x-labcode environment is accepted (>=0.1.2).
+# `validate` and `schedule` subcommands still forward unchanged.
 dependencies = [
     "ofplang-validate>=0.1.0",
     "ofplang-schedule>=0.1.2",
-    "ofplang-run>=0.1.4",
+    "ofplang-run>=0.1.6",
 ]
 
 [project.urls]

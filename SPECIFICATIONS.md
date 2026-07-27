@@ -47,6 +47,37 @@ port names**, each bound to that port's view value (Pure Data or an Object's vie
 the declared **output port** names to their view values, each conforming to its declared
 type (verified exactly as §22.2). External `import` is allowed; there is no sandbox.
 
+### 1.3 `x-labcode` on a transport route
+
+An environment `transports[]` route may carry an `x-labcode` with a `script`: the Python
+that physically carries out that move (e.g. commanding a robot arm). Same shape as §1.1
+(`language: python`, string `code`).
+
+```yaml
+transports:
+  - transporter: arm
+    from: reader.stage
+    to: sealer.stage
+    duration: 3
+    x-labcode:
+      script:
+        language: python
+        code: |
+          grip = "gentle" if (view or {}).get("fragile") else "firm"
+          move_plate(from_spot, to_spot, grip=grip)
+```
+
+**Calling convention (transport).** The script runs as a function body with these locals:
+`from_spot`, `to_spot`, `transporter` (the physical route), and `view` — the view value of
+the moved Object. `view` is **best-effort and MAY be `None`** (the runner resolves it from
+the producing arc; when it cannot, it is `None`), so a script that reads it should tolerate
+`None`. A transport script is **side-effect only**: its return value is ignored and no
+output is verified. Success is "it ran without raising"; an exception is a graceful failure
+(the move ends `failed`, no material is moved — the run stops).
+
+A route with no `x-labcode.script` runs as a plain timed move — the runner's material
+bookkeeping only, with no device command (a warned no-op for a real move, from != to).
+
 ## 2. Code source resolution and exclusivity
 
 For a dispatched `(process, mode)`, labcode resolves the code to run in this order:
@@ -78,11 +109,6 @@ sub-second, which would flood the replan loop); `lc run --seconds-per-tick/--spe
 
 ## 4. Not yet in this version (roadmap)
 
-- **Transport scripts** — an `x-labcode.script` on an environment `transports[]` route,
-  run when material is moved. The upstream seam is ready: `Backend.dispatch_transport`
-  carries the moved Object's `view` (ofplang-run >= 0.1.5), best-effort and possibly
-  `None`; a transport script's locals will be `from_spot`, `to_spot`, `transporter`,
-  `view`, with no return value (side-effect only). labcode does not run them yet.
 - **Device / transporter `x-labcode`** — connection and availability information
   (e.g. SiLA2 address) consolidated on `devices[]` / `transporters[]`, used for a
   connect/command/disconnect wrapper and for `down_devices` availability probing.

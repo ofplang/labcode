@@ -35,6 +35,15 @@ from ofplang.run.simulator import SubprocessBackend
 DEFAULT_SECONDS_PER_TICK = 20.0
 
 
+def _python_code(script) -> str | None:
+    """The `code` of a python `x-labcode.script` mapping, or None (absent / non-python).
+    A non-python script is treated as absent here; the dialect validator rejects it at the
+    front door, so it is never silently mis-run."""
+    if isinstance(script, dict) and script.get("language") == "python":
+        return script.get("code") or ""
+    return None
+
+
 def make_code_resolver(environment: dict) -> Callable:
     """Build the labcode code resolver, closed over `environment` (the raw, mode-id-
     normalised env dict, which keeps the ``x-labcode`` extension keys).
@@ -53,11 +62,6 @@ def make_code_resolver(environment: dict) -> Callable:
             m.get("id"): m for m in (proc.get("modes") or []) if isinstance(m, dict)
         }
 
-    def _python_code(script) -> str | None:
-        if isinstance(script, dict) and script.get("language") == "python":
-            return script.get("code") or ""
-        return None
-
     def resolver(process, mode, inputs, definition) -> str | None:
         # (2) env x-labcode.script on the dispatched mode.
         mode_entry = (modes_by_process.get(process) or {}).get(str(mode)) or {}
@@ -70,6 +74,56 @@ def make_code_resolver(environment: dict) -> Callable:
         return _python_code((definition or {}).get("script"))
 
     return resolver
+
+
+def make_transport_resolver(environment: dict) -> Callable:
+    """Build the labcode transport code resolver, closed over `environment`.
+
+    The returned ``resolver(transporter, from_spot, to_spot) -> str | None`` maps a
+    dispatched transport to its env ``transports[]`` route's ``x-labcode.script.code``,
+    matched exactly on ``(transporter, from, to)``; None when the route has no script (the
+    transport then runs as a plain timed move -- bookkeeping only, no device command)."""
+    routes: dict[tuple, str | None] = {}
+    for transport in environment.get("transports") or []:
+        if not isinstance(transport, dict):
+            continue
+        key = (transport.get("transporter"), transport.get("from"), transport.get("to"))
+        xlab = transport.get("x-labcode")
+        routes[key] = _python_code(xlab.get("script")) if isinstance(xlab, dict) else None
+
+    def resolver(transporter, from_spot, to_spot) -> str | None:
+        return routes.get((transporter, from_spot, to_spot))
+
+    return resolver
+
+
+class LabcodeBackend(SubprocessBackend):
+    """A `SubprocessBackend` that also runs *transport* scripts out-of-process.
+
+    The base backend runs processing scripts (via its resolver) and leaves transports
+    timed. labcode adds transport execution: a dispatched transport whose env route
+    carries an ``x-labcode.script`` runs that script in a child process, with the physical
+    route and the moved Object's view bound as locals (``from_spot`` / ``to_spot`` /
+    ``transporter`` / ``view``). It reuses the upstream machinery entirely -- the shared
+    `_start_child_op` launches it, and the settle loop completes it (moving material) or
+    fails it on a child error (ofplang-run >= 0.1.6) -- so only dispatch is overridden."""
+
+    def __init__(self, environment, *, transport_resolver: Callable | None = None, **kwargs):
+        super().__init__(environment, **kwargs)
+        self._transport_resolver = transport_resolver or (lambda *args: None)
+
+    def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
+        uuid = super().dispatch_transport(
+            transporter, from_spot, to_spot, duration=duration, view=view
+        )
+        code = self._transport_resolver(transporter, from_spot, to_spot)
+        if code is not None:
+            self._start_child_op(
+                uuid, code=code, kind="transport",
+                inputs={"from_spot": from_spot, "to_spot": to_spot,
+                        "transporter": transporter, "view": view},
+            )
+        return uuid
 
 
 def labcode_backend_factory(
@@ -87,9 +141,10 @@ def labcode_backend_factory(
     overrides how a child is launched (default: a real subprocess); `monotonic` / `sleep`
     are injectable so a test can drive the pacing on a fake clock."""
 
-    def factory(environment: dict) -> SubprocessBackend:
+    def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
             "resolver": make_code_resolver(environment),
+            "transport_resolver": make_transport_resolver(environment),
             "seconds_per_tick": seconds_per_tick,
             "speed": speed,
             "monotonic": monotonic,
@@ -97,6 +152,6 @@ def labcode_backend_factory(
         }
         if spawn is not None:
             kwargs["spawn"] = spawn
-        return SubprocessBackend(environment, **kwargs)
+        return LabcodeBackend(environment, **kwargs)
 
     return factory

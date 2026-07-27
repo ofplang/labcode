@@ -17,6 +17,10 @@ Two kinds of check, matching the spec:
   - **typed-default reachability** (a *warning*, not an error): a process with neither a
     workflow script nor any mode's ``x-labcode.script`` will run as a typed-default no-op
     (a device not yet scripted). Allowed -- convenient while mocking -- but surfaced.
+
+Environment ``transports[]`` routes are checked the same way: an ``x-labcode.script`` is
+shape-checked (python + string code); a real move (from != to) with no script is warned
+(it runs as a bookkeeping-only no-op move, no device command).
 """
 
 from __future__ import annotations
@@ -93,4 +97,44 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
                 f"will run as a typed-default no-op"
             )
 
+    _validate_transports(environment, errors, warnings)
     return DialectResult(ok=not errors, errors=errors, warnings=warnings)
+
+
+def _transport_label(transport: dict) -> str:
+    return (
+        f"transport {transport.get('transporter')!r} "
+        f"{transport.get('from')} -> {transport.get('to')}"
+    )
+
+
+def _validate_transports(environment: dict, errors: list, warnings: list) -> None:
+    """Validate the ``x-labcode.script`` on each environment ``transports[]`` route (a
+    transport script is side-effect only -- no ports, no outputs -- so only its shape is
+    checked). A real move (from != to) with no script runs as a bookkeeping-only no-op
+    move (no device command), which is warned."""
+    for transport in environment.get("transports") or []:
+        if not isinstance(transport, dict):
+            continue
+        label = _transport_label(transport)
+        xlab = transport.get("x-labcode")
+        if xlab is None:
+            if transport.get("from") != transport.get("to"):  # a real move
+                warnings.append(f"{label}: no x-labcode.script; it will run as a no-op move")
+            continue
+        if not isinstance(xlab, dict):
+            errors.append(f"{label}: x-labcode must be a mapping")
+            continue
+        script = xlab.get("script")
+        if script is None:
+            continue
+        if not isinstance(script, dict):
+            errors.append(f"{label}: x-labcode.script must be a mapping")
+            continue
+        if script.get("language") != "python":
+            errors.append(
+                f"{label}: x-labcode.script.language must be 'python' "
+                f"(got {script.get('language')!r})"
+            )
+        if not isinstance(script.get("code"), str):
+            errors.append(f"{label}: x-labcode.script.code must be a string")

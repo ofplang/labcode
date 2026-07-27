@@ -52,3 +52,42 @@ def test_typed_default_is_a_warning_not_an_error():
     result = validate_dialect({"processes": {}}, _env({"id": "v0", "duration": 3}))
     assert result.ok
     assert any("typed-default" in w for w in result.warnings)
+
+
+# -- transport routes ----------------------------------------------------------
+
+
+def _transport_env(route: dict) -> dict:
+    return {"processes": {}, "transports": [route]}
+
+
+def test_valid_transport_script_passes():
+    result = validate_dialect(
+        {},
+        _transport_env({"transporter": "t", "from": "a", "to": "b",
+                        "x-labcode": {"script": {"language": "python", "code": "move()"}}}),
+    )
+    assert result.ok
+    assert not result.errors
+
+
+def test_transport_script_language_must_be_python():
+    result = validate_dialect(
+        {},
+        _transport_env({"transporter": "t", "from": "a", "to": "b",
+                        "x-labcode": {"script": {"language": "r", "code": "x"}}}),
+    )
+    assert not result.ok
+    assert any("python" in e for e in result.errors)
+
+
+def test_scriptless_real_transport_warns():
+    result = validate_dialect({}, _transport_env({"transporter": "t", "from": "a", "to": "b"}))
+    assert result.ok
+    assert any("no-op move" in w for w in result.warnings)
+
+
+def test_same_spot_scriptless_transport_not_warned():
+    # A same-spot move (from == to) is a physical no-op by design, not a missing script.
+    result = validate_dialect({}, _transport_env({"transporter": "t", "from": "a", "to": "a"}))
+    assert not any("no-op move" in w for w in result.warnings)
