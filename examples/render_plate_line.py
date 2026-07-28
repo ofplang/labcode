@@ -32,13 +32,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from ofplang.run import run_workflow
 from ofplang.run.runner import load_document, serialize_document
 from ofplang.schedule.scheduler.visualize import render_svg
 
-from labcode.backend import labcode_backend_factory
-from labcode.idgen import SeededUuid4Generator
-from labcode.objectid import inject_boundary_ids, inject_id_field
+from labcode.runner import run_labcode
 
 HERE = Path(__file__).parent
 OUT = HERE / "outputs"
@@ -56,19 +53,13 @@ def main() -> None:
 
     boundary = load_document(str(BOUNDARY))
 
-    # Mirror `lc run`'s labcode Object-identity handling: inject the reserved `_id` view
-    # field into every Object type, mint boundary Object ids, and share one IdGenerator
-    # with the backend (which mints created Objects' ids). Runs the rewritten document in
-    # memory -- run_workflow accepts a mapping (with validate=False).
-    id_gen = SeededUuid4Generator()
-    workflow_run = inject_id_field(load_document(str(WORKFLOW)))
-    boundary = inject_boundary_ids(boundary, workflow_run, id_gen)
-    factory = labcode_backend_factory(seconds_per_tick=SECONDS_PER_TICK, id_generator=id_gen)
-
-    # Validation already happens at the `lc run` front door; here we run trusting and
-    # stream the observation document straight to its output file (as `lc run` would).
-    result = run_workflow(
-        workflow_run,
+    # `run_labcode` is the canonical labcode entry: it injects the reserved `_id` into
+    # every Object type, mints the boundary Object ids, and shares one IdGenerator with
+    # the backend -- so the Plate and Tube carry stable, reproducible identities through
+    # the observation. Validation already happens at the `lc run` front door; here we run
+    # trusting and stream the observation document straight to its output file.
+    result = run_labcode(
+        str(WORKFLOW),
         str(ENVIRONMENT),
         boundary,
         # Mirror `lc run`'s cadence: a running-task margin of at least the poll interval,
@@ -77,8 +68,7 @@ def main() -> None:
         poll_interval=1,
         running_task_margin=1,
         random_seed=0,
-        backend_factory=factory,
-        validate=False,
+        seconds_per_tick=SECONDS_PER_TICK,
         observation_out=str(OUT / "plate_line.observation.yaml"),
     )
 

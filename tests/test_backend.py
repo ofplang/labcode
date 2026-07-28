@@ -161,9 +161,14 @@ _MINIMAL_ENV = {
     "processes": {},
     "objective": {"kind": "makespan"},
 }
-# `read`: output `plate` (Plate, view {barcode: String}) carried via objects.map + `od` (Float).
+# `read`: output `plate` (Plate, view {barcode, _id}) carried via objects.map + `od` (Float).
+# The `_id` field reflects labcode's Object-identity rewrite (every Object view declares it).
 _PLATE_SCHEMA = {
-    "plate": {"kind": "record", "fields": {"barcode": {"kind": "primitive", "name": "String"}}},
+    "plate": {
+        "kind": "record",
+        "fields": {"barcode": {"kind": "primitive", "name": "String"},
+                   "_id": {"kind": "primitive", "name": "String"}},
+    },
     "od": {"kind": "primitive", "name": "Float"},
 }
 _MAP_DEF = {"objects": {"map": {"outputs.plate": "inputs.plate"}}}
@@ -179,18 +184,18 @@ def _resolve(pending_outputs, inputs):
 
 
 def test_partial_empty_carries_object_and_defaults_the_rest():
-    # `return {}`: the plate is carried by objects.map, od gets a typed default (0.0).
-    out = _resolve({}, {"plate": {"barcode": "P001"}})
-    assert out == {"plate": {"barcode": "P001"}, "od": 0.0}
+    # `return {}`: the plate is carried by objects.map (view + `_id`), od defaults (0.0).
+    out = _resolve({}, {"plate": {"barcode": "P001", "_id": "abc"}})
+    assert out == {"plate": {"barcode": "P001", "_id": "abc"}, "od": 0.0}
 
 
 def test_partial_merges_script_values_over_defaults():
-    # `return {"od": 0.42}`: plate carried; od taken from the script.
-    out = _resolve({"od": 0.42}, {"plate": {"barcode": "P001"}})
-    assert out == {"plate": {"barcode": "P001"}, "od": 0.42}
+    # `return {"od": 0.42}`: plate carried (with its `_id`); od taken from the script.
+    out = _resolve({"od": 0.42}, {"plate": {"barcode": "P001", "_id": "abc"}})
+    assert out == {"plate": {"barcode": "P001", "_id": "abc"}, "od": 0.42}
 
 
 def test_undeclared_output_name_is_rejected():
     # `return {"pltae": 1}`: a name outside the declared outputs is an error (typo guard).
     with pytest.raises(DeviceComputationError):
-        _resolve({"pltae": 1}, {"plate": {"barcode": "P001"}})
+        _resolve({"pltae": 1}, {"plate": {"barcode": "P001", "_id": "abc"}})

@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import copy
 
+from ofplang.run.simulator import DeviceComputationError
+
 from labcode.idgen import IdGenerator
 
 # The reserved view field name. Not user-declarable (see `reserved_collisions`).
@@ -173,9 +175,7 @@ def _is_ref(ref: object) -> bool:
 
 def _declares_id(output_schema: dict | None, port: str) -> bool:
     """Whether output `port`'s value-shape descriptor is a record declaring ``_id`` --
-    i.e. the port's Object type had ``_id`` injected (`inject_id_field`). This gates all
-    stamping: on a workflow that was NOT rewritten (so its Object views have no ``_id``),
-    every port fails this test and stamping is a no-op, keeping non-labcode use correct."""
+    i.e. the port's Object type had ``_id`` injected (`inject_id_field`)."""
     desc = (output_schema or {}).get(port)
     return (
         isinstance(desc, dict)
@@ -194,8 +194,12 @@ def stamp_object_ids(
 ) -> dict:
     """Stamp ``_id`` onto a process op's produced Object output views (mutates `outputs`).
 
-    Only ports whose value-shape declares ``_id`` (`_declares_id`) are touched, so on a
-    workflow labcode did not rewrite this is a no-op.
+    Every Object output port MUST declare ``_id`` in its value-shape -- i.e. its type was
+    ``_id``-injected (`inject_id_field`), which `LabcodeRunner` does for every labcode
+    run. A port that does not is an error (`DeviceComputationError`): labcode's Object
+    identity is an invariant, and a missing ``_id`` means an Object type escaped the
+    rewrite (e.g. a bare `labcode_backend_factory` used without `LabcodeRunner`, or a
+    `$import`-ed type). Surfacing it beats silently producing an id-less Object.
 
     * A **mapped** Object output (``objects.map`` ``outputs.P: inputs.Q``) carries the
       ``_id`` of its input ``Q`` -- identity is preserved even if the device script
@@ -205,20 +209,22 @@ def stamp_object_ids(
       same process (different nodes) get distinct, reproducible ids.
 
     `node` is the workflow provenance (a node-path tuple, or None); `inputs` are the op's
-    input views. Non-dict output values are left untouched (a conformance error, caught
-    downstream)."""
+    input views."""
     created, mapped = _object_output_ports(definition)
+    for port in (*mapped, *created):
+        if not _declares_id(output_schema, port):
+            raise DeviceComputationError(
+                f"Object output {port!r} has no {RESERVED_ID!r} in its view schema; every "
+                f"labcode Object type must be _id-injected -- run via LabcodeRunner",
+                code="missing_object_id",
+            )
     node_key = "/".join(node) if node else "?"
     for port, src in mapped.items():
-        if not _declares_id(output_schema, port):
-            continue
         view = outputs.get(port)
         src_view = inputs.get(src)
         if isinstance(view, dict) and isinstance(src_view, dict) and RESERVED_ID in src_view:
             view[RESERVED_ID] = src_view[RESERVED_ID]
     for port in created:
-        if not _declares_id(output_schema, port):
-            continue
         view = outputs.get(port)
         if isinstance(view, dict) and not view.get(RESERVED_ID):
             view[RESERVED_ID] = id_gen.new_id(f"node:{node_key}:{port}")

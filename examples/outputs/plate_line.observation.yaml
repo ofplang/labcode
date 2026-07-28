@@ -145,7 +145,7 @@ input_spots:
 output_spots:
   plate: reader.stage
 start: 7
-end: 9
+end: 10
 inputs:
   plate:
     view:
@@ -172,8 +172,8 @@ arc:
     node:
     - Store
     port: plate
-start: 9
-end: 11
+start: 10
+end: 12
 moved:
   view:
     barcode: P001
@@ -188,8 +188,8 @@ devices:
 - sealer
 input_spots:
   plate: sealer.stage
-start: 11
-end: 13
+start: 12
+end: 14
 inputs:
   plate:
     view:
@@ -198,5 +198,5 @@ inputs:
 outputs: {}
 ---
 final: true
-now: 13
+now: 14
 outcome: completed

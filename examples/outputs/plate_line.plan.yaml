@@ -1,6 +1,6 @@
 time:
   unit: second
-now: 13
+now: 14
 interface:
   inputs:
     tube: rack.slot
@@ -99,7 +99,7 @@ activities:
   status: completed
 - kind: processing
   start: 7
-  end: 9
+  end: 10
   process: read
   mode: m0
   node:
@@ -112,8 +112,8 @@ activities:
     plate: reader.stage
   status: completed
 - kind: transport
-  start: 9
-  end: 11
+  start: 10
+  end: 12
   from_spot: reader.stage
   to_spot: sealer.stage
   transporter: arm
@@ -128,8 +128,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 11
-  end: 13
+  start: 12
+  end: 14
   process: store
   mode: m0
   node:
@@ -141,4 +141,4 @@ activities:
   status: completed
 objective:
   kind: makespan
-  value: 13
+  value: 14

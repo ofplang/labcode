@@ -5,6 +5,9 @@ reproducible id generation, and the reserved-collision rejection.
 
 from __future__ import annotations
 
+import pytest
+from ofplang.run.simulator import DeviceComputationError
+
 from labcode.idgen import RealUuid4Generator, SeededUuid4Generator
 from labcode.objectid import (
     RESERVED_ID,
@@ -103,15 +106,16 @@ def test_stamp_carries_mapped_object_id():
     assert outputs["plate"][RESERVED_ID] == "abc"  # identity carried from the input
 
 
-def test_stamp_is_noop_when_type_does_not_declare_id():
-    # A workflow labcode did not rewrite: the port's schema has no `_id`, so stamping
-    # must not invent one (it would break closed-shape conformance).
+def test_stamp_raises_when_type_does_not_declare_id():
+    # An Object output whose type was not `_id`-injected is an invariant violation --
+    # labcode Object identity is mandatory (LabcodeRunner injects it), so stamping errors
+    # rather than silently producing an id-less (or non-conformant) Object.
     outputs = {"plate": {"barcode": "P001"}}
     definition = {"objects": {"create": ["outputs.plate"]}}
-    stamp_object_ids(
-        outputs, definition, {}, ("Load",), SeededUuid4Generator(0), PLATE_SCHEMA_NO_ID
-    )
-    assert RESERVED_ID not in outputs["plate"]
+    with pytest.raises(DeviceComputationError, match="_id"):
+        stamp_object_ids(
+            outputs, definition, {}, ("Load",), SeededUuid4Generator(0), PLATE_SCHEMA_NO_ID
+        )
 
 
 # -- id generators ------------------------------------------------------------

@@ -97,17 +97,18 @@ def test_cli_dialect_error_is_a_usage_error(tmp_path, capsys):
 
 def test_e2e_transport_script_runs_and_run_completes():
     # A workflow with a transport whose route carries an x-labcode.script: the script runs
-    # out-of-process when the Sample is moved, and the run completes.
+    # out-of-process when the Sample is moved, and the run completes. Driven by LabcodeRunner
+    # (the canonical labcode entry), which injects `_id` into the Sample's view.
     pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
-    from ofplang.run.runner import RollingRunner
+    from labcode.runner import LabcodeRunner
 
     clock = FakeClock()
-    factory = labcode_backend_factory(
-        seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep
-    )
     # running_task_margin>=1 (what `lc run` defaults to): the real transport overruns its
     # duration estimate, so its successor must not be dispatched onto the still-busy device.
-    runner = RollingRunner(TWF, TENV, backend_factory=factory, random_seed=0, running_task_margin=1)
+    runner = LabcodeRunner(
+        TWF, TENV, seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep,
+        random_seed=0, running_task_margin=1,
+    )
     status = runner.run()
     assert not runner.failed
     assert all(a["status"] == "completed" for a in status["activities"])
@@ -117,7 +118,7 @@ def test_e2e_failing_transport_script_fails_the_run(tmp_path):
     # A transport script that raises really ran (out-of-process) and its failure propagates:
     # the move ends failed and the run stops. Proves the transport child + failure path.
     pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
-    from ofplang.run.runner import RollingRunner
+    from labcode.runner import LabcodeRunner
 
     env = tmp_path / "env.yaml"
     env.write_text(
@@ -128,11 +129,9 @@ def test_e2e_failing_transport_script_fails_the_run(tmp_path):
         encoding="utf-8",
     )
     clock = FakeClock()
-    factory = labcode_backend_factory(
-        seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep
-    )
-    runner = RollingRunner(
-        TWF, str(env), backend_factory=factory, random_seed=0, running_task_margin=1
+    runner = LabcodeRunner(
+        TWF, str(env), seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep,
+        random_seed=0, running_task_margin=1,
     )
     runner.run()
     assert runner.failed
@@ -145,7 +144,7 @@ def test_e2e_partial_read_carries_the_plate(tmp_path):
     # carried through (objects.map) so the line completes, and od takes its typed default.
     # Exercises the labcode child (raw partial) + _resolve_model merge end to end.
     pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
-    from ofplang.run.runner import RollingRunner
+    from labcode.runner import LabcodeRunner
 
     env = tmp_path / "env.yaml"
     env.write_text(
@@ -155,21 +154,18 @@ def test_e2e_partial_read_carries_the_plate(tmp_path):
         encoding="utf-8",
     )
     clock = FakeClock()
-    factory = labcode_backend_factory(
-        seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep
-    )
     # plate_line takes a Tube in at the run boundary (on the rack) and returns it; the
-    # Plate is created internally. Drive RollingRunner directly (no `_id` rewrite) with
-    # that boundary.
+    # Plate is created internally. LabcodeRunner injects `_id` and mints the boundary id.
     boundary = {
         "boundary": {
             "inputs": {"tube": {"spot": "rack.slot"}},
             "outputs": {"od": {}, "tube": {"spot": "rack.slot"}},
         }
     }
-    runner = RollingRunner(
+    runner = LabcodeRunner(
         str(EXAMPLES / "plate_line.workflow.yaml"), str(env), boundary,
-        backend_factory=factory, random_seed=0, running_task_margin=1,
+        seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep,
+        random_seed=0, running_task_margin=1,
     )
     status = runner.run()
     assert not runner.failed
@@ -186,7 +182,7 @@ def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
     env = tmp_path / "env.yaml"
     env.write_text(NO_SCRIPT_ENV, encoding="utf-8")
     monkeypatch.setattr(
-        run_cli, "run_workflow",
+        run_cli, "run_labcode",
         lambda *a, **k: RunResult(status={"now": 0, "activities": []}, result_boundary={},
                                   failed=False, failure=None),
     )
