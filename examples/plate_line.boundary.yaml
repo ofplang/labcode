@@ -1,0 +1,14 @@
+# Run boundary (dev-notes D28) for plate_line.workflow.yaml.
+#
+# plate_line creates its Plate *inside* the workflow (`load` is a source device),
+# so it needs no boundary *inputs* -- there is nothing to place on a spot or seed.
+# This document therefore only names the whole-workflow output `od`, so the run's
+# produced value is echoed back explicitly in the result boundary
+# (`--boundary-out`, or render_plate_line.py's plate_line.boundary.yaml output).
+#
+# It is deliberately minimal: an empty `boundary: {}` would run just the same.
+# Refine it later (e.g. add inputs) as the example grows.
+boundary:
+  inputs: {}
+  outputs:
+    od: {}   # Pure Data output; view filled in at run end
