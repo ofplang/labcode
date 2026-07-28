@@ -1,29 +1,36 @@
 """Run the `plate_line` example on the labcode backend and write its outputs.
 
-This mirrors ofplang-run's `render_*.py` scripts, but drives the workflow on the
-**labcode backend**: each device operation's and each move's Python is sourced from
-the environment's `x-labcode.script` (see plate_line.env.yaml) and run out-of-process
-on a wall clock -- exactly what `lc run --env ... --boundary ...` does.
+This mirrors ofplang-run's `render_*.py` scripts, but drives the workflow through
+`labcode.run_labcode` -- the canonical labcode entry -- exactly as `lc run --env ...
+--boundary ...` does. Each device operation's and each move's Python is sourced from the
+environment's `x-labcode.script` (see plate_line.env.yaml) and run out-of-process on a
+wall clock, and every Object carries labcode's reserved `_id` identity (injected/minted
+by run_labcode).
 
-A Plate flows down a three-station line and its optical density is read off it:
+A Plate flows down a four-station line, a Tube is dispensed into it, and its optical
+density is read off it:
 
-    load ──[move]──> read ──[move]──> store
+           (in) tube ──────────────┐
+                                    ▼
+    load ──[move]──> dispense ──[move]──> read ──[move]──> store
 
-`load` creates the Plate, `read` measures `od = 0.42` (the Plate is carried through
-by objects.map), `store` takes it. The run boundary (plate_line.boundary.yaml) names
-the whole-workflow output `od` so it is echoed in the result boundary.
+`load` creates the Plate, `dispense` dispenses the Tube into it (both Objects carried by
+objects.map), `read` measures `od = 0.42` (the Plate carried through), `store` takes the
+Plate. The Tube enters and returns at the run boundary (plate_line.boundary.yaml).
 
 Run it:
 
     python examples/render_plate_line.py
 
-It writes three artifacts under examples/outputs/:
+It writes four artifacts under examples/outputs/:
   - plate_line.plan.yaml        -- the final execution schedule (§6/§7 status doc)
   - plate_line.observation.yaml -- the observation document (D38: each completed
-                                    activity's I/O views), as `lc run` would stream it
+                                    activity's I/O views, incl. each Object's `_id`)
   - plate_line.svg              -- a Gantt chart of that schedule (device view)
+  - plate_line.boundary.yaml    -- the result boundary (the produced `od` and the
+                                    returned `tube`, as `--boundary-out` writes it)
 
-and prints the result boundary (the produced `od`). Requires the sibling
+and prints the result boundary (`od` + `tube`) and the makespan. Requires the sibling
 `ofplang-schedule` (the runner replans through it, and its visualizer draws the SVG).
 """
 
