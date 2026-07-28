@@ -1,7 +1,27 @@
 time:
   unit: second
-now: 8
+now: 13
+interface:
+  inputs:
+    tube: rack.slot
+  outputs:
+    tube: rack.slot
 activities:
+- kind: transport
+  start: 0
+  end: 1
+  from_spot: rack.slot
+  to_spot: dispenser.tube
+  transporter: arm
+  arc:
+    from:
+      node: []
+      port: tube
+    to:
+      node:
+      - Dispense
+      port: tube
+  status: completed
 - kind: processing
   start: 0
   end: 1
@@ -18,7 +38,7 @@ activities:
   start: 1
   end: 3
   from_spot: loader.stage
-  to_spot: reader.stage
+  to_spot: dispenser.deck
   transporter: arm
   arc:
     from:
@@ -27,12 +47,59 @@ activities:
       port: plate
     to:
       node:
-      - Read
+      - Dispense
       port: plate
   status: completed
 - kind: processing
   start: 3
   end: 5
+  process: dispense
+  mode: m0
+  node:
+  - Dispense
+  devices:
+  - dispenser
+  input_spots:
+    plate: dispenser.deck
+    tube: dispenser.tube
+  output_spots:
+    plate: dispenser.deck
+    tube: dispenser.tube
+  status: completed
+- kind: transport
+  start: 5
+  end: 7
+  from_spot: dispenser.deck
+  to_spot: reader.stage
+  transporter: arm
+  arc:
+    from:
+      node:
+      - Dispense
+      port: plate
+    to:
+      node:
+      - Read
+      port: plate
+  status: completed
+- kind: transport
+  start: 7
+  end: 9
+  from_spot: dispenser.tube
+  to_spot: rack.slot
+  transporter: arm
+  arc:
+    from:
+      node:
+      - Dispense
+      port: tube
+    to:
+      node: []
+      port: tube
+  status: completed
+- kind: processing
+  start: 7
+  end: 9
   process: read
   mode: m0
   node:
@@ -45,8 +112,8 @@ activities:
     plate: reader.stage
   status: completed
 - kind: transport
-  start: 5
-  end: 6
+  start: 9
+  end: 11
   from_spot: reader.stage
   to_spot: sealer.stage
   transporter: arm
@@ -61,8 +128,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 6
-  end: 8
+  start: 11
+  end: 13
   process: store
   mode: m0
   node:
@@ -74,4 +141,4 @@ activities:
   status: completed
 objective:
   kind: makespan
-  value: 8
+  value: 13

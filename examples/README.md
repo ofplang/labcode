@@ -2,28 +2,36 @@
 
 ## `plate_line` — an Object-bearing line, driven by environment scripts
 
-A `Plate` flows down a three-station line and a measurement is read off it:
+A `Plate` flows down a four-station line, a `Tube` is dispensed into it, and a
+measurement is read off it:
 
 ```
-load ──[move]──> read ──[move]──> store
+         (in) tube ──────────────┐
+                                  ▼
+load ──[move]──> dispense ──[move]──> read ──[move]──> store
+                     │                   │
+                (out) tube           (out) od
 ```
 
 - [`plate_line.workflow.yaml`](plate_line.workflow.yaml) is **portable ofplang v0** — it
-  says only *what* happens. `read` is **Object-bearing**: the Plate goes in and the *same*
-  Plate comes out (`objects.map` — identity preserved), together with a Pure Data
-  measurement `od`. The Plate is created inside the workflow, so no run boundary is needed.
+  says only *what* happens. The whole workflow takes one `Tube` in and passes the *same*
+  Tube back out, alongside the Pure Data measurement `od`. `dispense` and `read` are
+  **Object-bearing**: their Objects go in and the *same* Objects come out (`objects.map` —
+  identity preserved). The Plate is created inside the workflow by `load`; the Tube enters
+  at the run boundary.
 - [`plate_line.boundary.yaml`](plate_line.boundary.yaml) is the **run boundary** (dev-notes
-  D28). Because the Plate is created internally, there are no boundary *inputs* to place;
-  it only names the whole-workflow output `od`, so the produced value is echoed back
-  explicitly in the result boundary. It is deliberately minimal (an empty `boundary: {}`
-  would run the same) — a starting point to grow.
+  D28). It supplies the `Tube` input — an Object, so it names a `spot`: a standalone tube
+  `rack` slot bound to no process, where the Tube starts and returns (`Tube` has no view
+  fields, so no `view`). The arm carries it to the dispenser and back. It also names the
+  outputs `od` and `tube`, whose produced values are echoed in the result boundary.
 - [`plate_line.env.yaml`](plate_line.env.yaml) is the **labcode environment** — it says
   *how* each step is carried out, as an `x-labcode.script` (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md)).
   **Every process mode and every transport route carries a script**: `load` makes the
-  Plate, `read` measures `od` (the Plate is carried through automatically by `objects.map`,
-  so the script returns only what it computes — labcode's *partial outputs*, see the spec),
-  `store` takes it; the transport scripts perform the move and may read the moved Plate's
-  `view` (its barcode).
+  Plate, `dispense` dispenses the Tube into the Plate (both Objects are carried through by
+  `objects.map`, so its script returns nothing), `read` measures `od` (the Plate is
+  carried, so the script returns only what it computes — labcode's *partial outputs*, see
+  the spec), `store` takes it; the transport scripts perform the move and may read the
+  moved Plate's `view` (its barcode).
 
 labcode runs each script **out-of-process** on a wall clock, discovering completion by
 polling — so a real, slow device operation never blocks the runner.
@@ -58,7 +66,8 @@ python examples/render_plate_line.py
   (device view), drawn by the scheduler's visualizer. (The ofplang toolchain renders
   SVG/HTML; open it in a browser, or convert to PNG with any SVG rasterizer.)
 - [`outputs/plate_line.boundary.yaml`](outputs/plate_line.boundary.yaml) — the **result
-  boundary**, echoing the produced `od` (as `--boundary-out` writes it).
+  boundary**, echoing the produced `od` and the returned `tube` (as `--boundary-out`
+  writes it).
 
 Because the labcode backend runs each op out-of-process on a wall clock, the exact times
 (and makespan) may vary slightly between runs; the sequence and produced values do not.

@@ -1,14 +1,18 @@
 # Run boundary (dev-notes D28) for plate_line.workflow.yaml.
 #
-# plate_line creates its Plate *inside* the workflow (`load` is a source device),
-# so it needs no boundary *inputs* -- there is nothing to place on a spot or seed.
-# This document therefore only names the whole-workflow output `od`, so the run's
-# produced value is echoed back explicitly in the result boundary
-# (`--boundary-out`, or render_plate_line.py's plate_line.boundary.yaml output).
+# The whole workflow takes one `Tube` in and passes the same Tube out (plus the Pure
+# Data measurement `od`). A boundary port has two halves: `spot` (where an Object sits)
+# and `view` (its observable value).
 #
-# It is deliberately minimal: an empty `boundary: {}` would run just the same.
-# Refine it later (e.g. add inputs) as the example grows.
+#  - `tube` is Object-bearing, so it MUST name a spot: it starts in the standalone tube
+#    rack (`rack.slot`, bound to no process). The arm carries it to the dispenser for the
+#    dispense and back. `Tube` has no view fields, so no `view` is supplied.
+#  - `od` is Pure Data (no spot); its produced view is filled in at run end.
+#  - the `tube` output is pinned back to its rack slot, so it round-trips (its view is
+#    filled in at run end).
 boundary:
-  inputs: {}
+  inputs:
+    tube: { spot: rack.slot }
   outputs:
-    od: {}   # Pure Data output; view filled in at run end
+    od: {}
+    tube: { spot: rack.slot }

@@ -61,6 +61,11 @@ def main() -> None:
         str(WORKFLOW),
         str(ENVIRONMENT),
         boundary,
+        # Mirror `lc run`'s cadence: a running-task margin of at least the poll interval,
+        # so an op that overruns its estimate (real, wall-clock timing) does not get a
+        # successor dispatched onto a still-busy device.
+        poll_interval=1,
+        running_task_margin=1,
         random_seed=0,
         backend_factory=factory,
         validate=True,

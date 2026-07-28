@@ -1,5 +1,10 @@
 boundary:
-  inputs: {}
+  inputs:
+    tube:
+      spot: rack.slot
   outputs:
     od:
       view: 0.42
+    tube:
+      spot: rack.slot
+      view: {}

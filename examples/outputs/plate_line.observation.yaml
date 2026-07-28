@@ -1,6 +1,28 @@
 schema: ofplang-observation/v0
 time:
   unit: second
+interface:
+  inputs:
+    tube: rack.slot
+  outputs:
+    tube: rack.slot
+---
+kind: transport
+from_spot: rack.slot
+to_spot: dispenser.tube
+transporter: arm
+arc:
+  from:
+    node: []
+    port: tube
+  to:
+    node:
+    - Dispense
+    port: tube
+start: 0
+end: 1
+moved:
+  view: {}
 ---
 kind: processing
 process: load
@@ -21,7 +43,7 @@ outputs:
 ---
 kind: transport
 from_spot: loader.stage
-to_spot: reader.stage
+to_spot: dispenser.deck
 transporter: arm
 arc:
   from:
@@ -30,13 +52,77 @@ arc:
     port: plate
   to:
     node:
-    - Read
+    - Dispense
     port: plate
 start: 1
 end: 3
 moved:
   view:
     barcode: P001
+---
+kind: processing
+process: dispense
+mode: m0
+node:
+- Dispense
+devices:
+- dispenser
+input_spots:
+  plate: dispenser.deck
+  tube: dispenser.tube
+output_spots:
+  plate: dispenser.deck
+  tube: dispenser.tube
+start: 3
+end: 5
+inputs:
+  plate:
+    view:
+      barcode: P001
+  tube:
+    view: {}
+outputs:
+  plate:
+    view:
+      barcode: P001
+  tube:
+    view: {}
+---
+kind: transport
+from_spot: dispenser.deck
+to_spot: reader.stage
+transporter: arm
+arc:
+  from:
+    node:
+    - Dispense
+    port: plate
+  to:
+    node:
+    - Read
+    port: plate
+start: 5
+end: 7
+moved:
+  view:
+    barcode: P001
+---
+kind: transport
+from_spot: dispenser.tube
+to_spot: rack.slot
+transporter: arm
+arc:
+  from:
+    node:
+    - Dispense
+    port: tube
+  to:
+    node: []
+    port: tube
+start: 7
+end: 9
+moved:
+  view: {}
 ---
 kind: processing
 process: read
@@ -49,8 +135,8 @@ input_spots:
   plate: reader.stage
 output_spots:
   plate: reader.stage
-start: 3
-end: 5
+start: 7
+end: 9
 inputs:
   plate:
     view:
@@ -75,8 +161,8 @@ arc:
     node:
     - Store
     port: plate
-start: 5
-end: 6
+start: 9
+end: 11
 moved:
   view:
     barcode: P001
@@ -90,8 +176,8 @@ devices:
 - sealer
 input_spots:
   plate: sealer.stage
-start: 6
-end: 8
+start: 11
+end: 13
 inputs:
   plate:
     view:
@@ -99,5 +185,5 @@ inputs:
 outputs: {}
 ---
 final: true
-now: 8
+now: 13
 outcome: completed

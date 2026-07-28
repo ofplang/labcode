@@ -1,14 +1,21 @@
-# A small labcode example: a Plate flows down a three-station line and a measurement
-# is read off it. Every step's *how* -- both the device operations and the moves --
-# is supplied by the environment as an `x-labcode.script` (see plate_line.env.yaml);
-# this file is portable ofplang v0 (it says only *what* happens).
+# A small labcode example: a Plate flows down a four-station line, a Tube is dispensed
+# into it, and a measurement is read off it. Every step's *how* -- both the device
+# operations and the moves -- is supplied by the environment as an `x-labcode.script`
+# (see plate_line.env.yaml); this file is portable ofplang v0 (it says only *what*).
 #
-#   load ──[move]──> read ──[move]──> store
+#          (input) tube ──────────────┐
+#                                      ▼
+#   load ──plate──▶ dispense ──plate──▶ read ──plate──▶ store
+#                       │                 │
+#              (output) tube        (output) od
 #
-# `read` is Object-bearing: it takes the Plate in and passes the *same* Plate out
-# (objects.map -- identity preserved), while also producing a Pure Data measurement
-# `od`. So an Object and a data value flow together (cf. examples/plate_chain in
-# ofplang-run). The Plate is created inside the workflow, so no run boundary is needed.
+# The whole workflow takes one `Tube` in and passes the *same* Tube out (identity
+# preserved), alongside the Pure Data measurement `od`. `dispense` is Object-bearing on
+# both ports: the Plate and the Tube go in and the *same* Plate and Tube come out
+# (objects.map) -- liquid is dispensed from the Tube into the Plate, but neither Object's
+# identity changes. `read` likewise carries its Plate through (cf. plate_chain in
+# ofplang-run). The Plate is created inside the workflow by `load`; the Tube enters at
+# the run boundary (see plate_line.boundary.yaml).
 spec_version: "0.0"
 
 types:
@@ -16,6 +23,9 @@ types:
     domain: object
     view:
       barcode: { type: String }
+  # A 1.5 mL tube. Just an Object identity -- no view fields to carry.
+  Tube:
+    domain: object
 
 processes:
 
@@ -26,6 +36,22 @@ processes:
       plate: { type: Plate, phase: data }
     objects:
       create: [outputs.plate]
+
+  # Object-bearing on both ports: the Plate and the Tube go in and the *same* Plate and
+  # Tube come out (objects.map -- identity preserved). Liquid is dispensed from the Tube
+  # into the Plate; in object-flow terms both are carried through unchanged.
+  dispense:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+      tube:  { type: Tube,  phase: data }
+    outputs:
+      plate: { type: Plate, phase: data }   # same name as the input: the same plate
+      tube:  { type: Tube,  phase: data }    # same name as the input: the same tube
+    objects:
+      map:
+        outputs.plate: inputs.plate
+        outputs.tube:  inputs.tube
 
   # Object-bearing measurement: the Plate goes in and the *same* Plate comes out
   # (objects.map), and its optical density `od` is measured as Pure Data.
@@ -50,22 +76,29 @@ processes:
 
   main:
     kind: composite
-    inputs: {}
+    inputs:
+      tube: { type: Tube, phase: data }      # the Tube comes in at the run boundary
     outputs:
-      od: { type: Float, phase: data }
+      od:   { type: Float, phase: data }
+      tube: { type: Tube,  phase: data }      # ...and the same Tube goes back out
     body:
       nodes:
         - id: Load
           process: load
+        - id: Dispense
+          process: dispense
+          state:
+            plate: { from: Load.plate }       # Object arc (a move is scheduled for it)
+            tube:  { from: inputs.tube }       # the boundary Tube
         - id: Read
           process: read
           state:
-            plate: { from: Load.plate }    # Object arc (a move is scheduled for it)
+            plate: { from: Dispense.plate }
         - id: Store
           process: store
           state:
             plate: { from: Read.plate }
       returns:
-        od: { from: Read.od }
-
+        od:   { from: Read.od }
+        tube: { from: Dispense.tube }          # the Tube leaves the workflow
 entry: main
