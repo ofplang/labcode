@@ -57,6 +57,31 @@ def test_e2e_env_script_really_computes_output():
     assert runner.outputs == {"od": 0.42}
 
 
+def test_e2e_lc_run_stamps_deterministic_object_ids(tmp_path):
+    # End to end through `lc run`: the Tube boundary input and the created Plate get a
+    # reserved `_id`, the Tube's id round-trips to the output (identity preserved), and
+    # two runs produce identical ids (reproducible, provenance-keyed).
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    import yaml
+
+    base = [
+        str(EXAMPLES / "plate_line.workflow.yaml"),
+        "--env", str(EXAMPLES / "plate_line.env.yaml"),
+        "--boundary", str(EXAMPLES / "plate_line.boundary.yaml"),
+        "--seconds-per-tick", "0.001",
+        "-o", str(tmp_path / "status.yaml"),
+    ]
+    rb1, rb2 = tmp_path / "rb1.yaml", tmp_path / "rb2.yaml"
+    assert run_cli.main([*base, "--boundary-out", str(rb1)]) == 0
+    assert run_cli.main([*base, "--boundary-out", str(rb2)]) == 0
+
+    doc1 = yaml.safe_load(rb1.read_text(encoding="utf-8"))
+    out_tube = doc1["boundary"]["outputs"]["tube"]["view"]
+    in_tube = doc1["boundary"]["inputs"]["tube"]["view"]
+    assert out_tube["_id"] and out_tube["_id"] == in_tube["_id"]  # minted + identity carried
+    assert doc1 == yaml.safe_load(rb2.read_text(encoding="utf-8"))  # deterministic
+
+
 def test_cli_dialect_error_is_a_usage_error(tmp_path, capsys):
     # A non-python x-labcode script is rejected at the dialect front door (exit 2), before
     # any execution.
@@ -133,14 +158,24 @@ def test_e2e_partial_read_carries_the_plate(tmp_path):
     factory = labcode_backend_factory(
         seconds_per_tick=0.001, monotonic=clock.monotonic, sleep=clock.sleep
     )
+    # plate_line takes a Tube in at the run boundary (on the rack) and returns it; the
+    # Plate is created internally. Drive RollingRunner directly (no `_id` rewrite) with
+    # that boundary.
+    boundary = {
+        "boundary": {
+            "inputs": {"tube": {"spot": "rack.slot"}},
+            "outputs": {"od": {}, "tube": {"spot": "rack.slot"}},
+        }
+    }
     runner = RollingRunner(
-        str(EXAMPLES / "plate_line.workflow.yaml"), str(env),
+        str(EXAMPLES / "plate_line.workflow.yaml"), str(env), boundary,
         backend_factory=factory, random_seed=0, running_task_margin=1,
     )
     status = runner.run()
     assert not runner.failed
     assert all(a["status"] == "completed" for a in status["activities"])  # plate reached store
-    assert runner.outputs == {"od": 0.0}  # od defaulted
+    assert runner.outputs["od"] == 0.0  # od defaulted (read returned {})
+    assert "tube" in runner.outputs  # the Tube is carried back out
 
 
 def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):

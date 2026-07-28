@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from labcode.objectid import RESERVED_ID, reserved_collisions
+
 
 @dataclass
 class DialectResult:
@@ -50,6 +52,15 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
     warnings: list[str] = []
     wf_procs = workflow.get("processes") or {}
     env_procs = environment.get("processes") or {}
+
+    # Reserved Object identity: labcode injects `_id` into every Object type's view (an
+    # implicit, value-layer identity). A user type that already declares `_id` collides
+    # with that -- reject it rather than clobber the user's field.
+    for type_name in reserved_collisions(workflow):
+        errors.append(
+            f"type {type_name!r} declares the reserved view field {RESERVED_ID!r}; "
+            f"labcode owns it as an implicit Object identity and it must not be declared"
+        )
 
     for name, eproc in env_procs.items():
         if not isinstance(eproc, dict):

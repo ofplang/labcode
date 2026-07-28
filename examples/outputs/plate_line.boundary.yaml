@@ -2,9 +2,12 @@ boundary:
   inputs:
     tube:
       spot: rack.slot
+      view:
+        _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5
   outputs:
     od:
       view: 0.42
     tube:
       spot: rack.slot
-      view: {}
+      view:
+        _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5

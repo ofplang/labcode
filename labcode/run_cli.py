@@ -29,6 +29,8 @@ from ofplang.run.simulator import SimulatorError
 
 from labcode.backend import DEFAULT_SECONDS_PER_TICK, labcode_backend_factory
 from labcode.dialect import validate_dialect
+from labcode.idgen import SeededUuid4Generator
+from labcode.objectid import inject_boundary_ids, inject_id_field
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -142,15 +144,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if err is not None:
             return err
 
+    # labcode Object identity (`_id`): inject the reserved view field into every Object
+    # type, run that rewritten document (in memory -- no temp file), and mint ids at the
+    # two Object-origin sites. One IdGenerator serves both the run boundary (below) and
+    # the backend's created Objects, so a run's ids are consistent and reproducible.
+    id_gen = SeededUuid4Generator()
+    workflow_run = inject_id_field(workflow_doc or {})
+    boundary = inject_boundary_ids(boundary, workflow_run, id_gen)
+
     # Cadence default: a margin of at least the poll interval so an overrun (a real op
     # exceeding its estimate) does not dispatch a successor onto a still-busy resource.
     margin = args.margin if args.margin is not None else args.poll_interval
-    factory = labcode_backend_factory(seconds_per_tick=args.seconds_per_tick, speed=args.speed)
+    factory = labcode_backend_factory(
+        seconds_per_tick=args.seconds_per_tick, speed=args.speed, id_generator=id_gen
+    )
 
     try:
-        # Validation already ran at the front doors above, so run trusting.
+        # Validation already ran at the front doors above, so run trusting. The rewritten
+        # in-memory workflow is passed directly (run_workflow accepts a document).
         result = run_workflow(
-            args.workflow,
+            workflow_run,
             args.env,
             boundary,
             running_task_margin=margin,

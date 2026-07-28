@@ -22,7 +22,8 @@ arc:
 start: 0
 end: 1
 moved:
-  view: {}
+  view:
+    _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5
 ---
 kind: processing
 process: load
@@ -40,6 +41,7 @@ outputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 ---
 kind: transport
 from_spot: loader.stage
@@ -59,6 +61,7 @@ end: 3
 moved:
   view:
     barcode: P001
+    _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 ---
 kind: processing
 process: dispense
@@ -79,14 +82,18 @@ inputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
   tube:
-    view: {}
+    view:
+      _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5
 outputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
   tube:
-    view: {}
+    view:
+      _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5
 ---
 kind: transport
 from_spot: dispenser.deck
@@ -106,6 +113,7 @@ end: 7
 moved:
   view:
     barcode: P001
+    _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 ---
 kind: transport
 from_spot: dispenser.tube
@@ -122,7 +130,8 @@ arc:
 start: 7
 end: 9
 moved:
-  view: {}
+  view:
+    _id: 60dfcfab-2234-4c90-b7aa-c8d984cbd3c5
 ---
 kind: processing
 process: read
@@ -141,10 +150,12 @@ inputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 outputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
   od:
     view: 0.42
 ---
@@ -166,6 +177,7 @@ end: 11
 moved:
   view:
     barcode: P001
+    _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 ---
 kind: processing
 process: store
@@ -182,6 +194,7 @@ inputs:
   plate:
     view:
       barcode: P001
+      _id: 7e50cfbd-8065-490c-a9ed-f4a50451bac1
 outputs: {}
 ---
 final: true

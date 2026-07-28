@@ -37,6 +37,8 @@ from ofplang.run.runner import load_document, serialize_document
 from ofplang.schedule.scheduler.visualize import render_svg
 
 from labcode.backend import labcode_backend_factory
+from labcode.idgen import SeededUuid4Generator
+from labcode.objectid import inject_boundary_ids, inject_id_field
 
 HERE = Path(__file__).parent
 OUT = HERE / "outputs"
@@ -53,12 +55,20 @@ def main() -> None:
     OUT.mkdir(exist_ok=True)
 
     boundary = load_document(str(BOUNDARY))
-    factory = labcode_backend_factory(seconds_per_tick=SECONDS_PER_TICK)
+
+    # Mirror `lc run`'s labcode Object-identity handling: inject the reserved `_id` view
+    # field into every Object type, mint boundary Object ids, and share one IdGenerator
+    # with the backend (which mints created Objects' ids). Runs the rewritten document in
+    # memory -- run_workflow accepts a mapping (with validate=False).
+    id_gen = SeededUuid4Generator()
+    workflow_run = inject_id_field(load_document(str(WORKFLOW)))
+    boundary = inject_boundary_ids(boundary, workflow_run, id_gen)
+    factory = labcode_backend_factory(seconds_per_tick=SECONDS_PER_TICK, id_generator=id_gen)
 
     # Validation already happens at the `lc run` front door; here we run trusting and
     # stream the observation document straight to its output file (as `lc run` would).
     result = run_workflow(
-        str(WORKFLOW),
+        workflow_run,
         str(ENVIRONMENT),
         boundary,
         # Mirror `lc run`'s cadence: a running-task margin of at least the poll interval,
@@ -68,7 +78,7 @@ def main() -> None:
         running_task_margin=1,
         random_seed=0,
         backend_factory=factory,
-        validate=True,
+        validate=False,
         observation_out=str(OUT / "plate_line.observation.yaml"),
     )
 

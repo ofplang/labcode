@@ -36,6 +36,9 @@ from ofplang.run.simulator import (
     default_device_model,
 )
 
+from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
+from labcode.objectid import stamp_object_ids
+
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
 # reads as discrete, observable steps rather than a burst of sub-second replans.
@@ -137,20 +140,37 @@ class LabcodeBackend(SubprocessBackend):
       upstream child verifies outputs exactly."""
 
     def __init__(
-        self, environment, *, transport_resolver: Callable | None = None, spawn=None, **kwargs
+        self,
+        environment,
+        *,
+        transport_resolver: Callable | None = None,
+        id_generator: IdGenerator | None = None,
+        spawn=None,
+        **kwargs,
     ):
         super().__init__(environment, spawn=spawn or _labcode_child_spawn, **kwargs)
         self._transport_resolver = transport_resolver or (lambda *args: None)
+        # Mints the reserved `_id` on created Objects (see `labcode.objectid`). Shared
+        # with the run boundary's minting so a run's ids are consistent; default is the
+        # reproducible seeded generator.
+        self._id_gen = id_generator or DEFAULT_ID_GENERATOR
 
-    def _resolve_model(self, process, mode, inputs, output_schema, definition):
+    def _resolve_model(self, process, mode, inputs, output_schema, definition, node=None):
         """The value model `_complete` calls at completion: merge the script's *partial*
-        outputs onto the defaults (§1.2). `default_device_model` supplies the base
-        (``objects.map`` Object carry + typed defaults); the script's returned values
-        override it. A returned name outside `output_schema` is a runtime failure; a timed
-        op (no child) or a child error is handled as in the base backend."""
+        outputs onto the defaults (§1.2), then stamp Object identities (`_id`).
+
+        `default_device_model` supplies the base (``objects.map`` Object carry + typed
+        defaults); the script's returned values override it. A returned name outside
+        `output_schema` is a runtime failure. `stamp_object_ids` then mints ``_id`` for a
+        created Object and carries it for a mapped one (keyed by `node`, the workflow
+        provenance). A timed op (no child) or a child error is handled as in the base
+        backend."""
         pending = self._pending
         if not isinstance(pending, dict):  # the _TIMED sentinel: no child ran
-            return default_device_model(process, mode, inputs, output_schema, definition)
+            outputs = default_device_model(process, mode, inputs, output_schema, definition)
+            return stamp_object_ids(
+                outputs, definition, inputs or {}, node, self._id_gen, output_schema
+            )
         if "error" in pending:
             err = pending["error"]
             raise DeviceComputationError(
@@ -164,7 +184,9 @@ class LabcodeBackend(SubprocessBackend):
                 code="script_output_names",
             )
         base = default_device_model(process, mode, inputs, output_schema, definition)
-        return {**base, **raw}
+        return stamp_object_ids(
+            {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema
+        )
 
     def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
         uuid = super().dispatch_transport(
@@ -184,6 +206,7 @@ def labcode_backend_factory(
     *,
     seconds_per_tick: float = DEFAULT_SECONDS_PER_TICK,
     speed: float = 1.0,
+    id_generator: IdGenerator | None = None,
     spawn: Callable[[dict], object] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -191,14 +214,18 @@ def labcode_backend_factory(
     """Build a ``backend_factory(environment) -> SubprocessBackend`` for the runner,
     wired with the labcode env-script resolver (`make_code_resolver`).
 
-    `seconds_per_tick` / `speed` set the wall-clock pace (see module docstring). `spawn`
-    overrides how a child is launched (default: a real subprocess); `monotonic` / `sleep`
-    are injectable so a test can drive the pacing on a fake clock."""
+    `seconds_per_tick` / `speed` set the wall-clock pace (see module docstring).
+    `id_generator` mints the reserved Object ``_id`` (default: the reproducible seeded
+    generator; pass a `RealUuid4Generator` for a real run, or share the same instance the
+    run boundary mints with). `spawn` overrides how a child is launched (default: a real
+    subprocess); `monotonic` / `sleep` are injectable so a test can drive the pacing on a
+    fake clock."""
 
     def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
             "resolver": make_code_resolver(environment),
             "transport_resolver": make_transport_resolver(environment),
+            "id_generator": id_generator,
             "seconds_per_tick": seconds_per_tick,
             "speed": speed,
             "monotonic": monotonic,

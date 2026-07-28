@@ -72,6 +72,13 @@ python examples/render_plate_line.py
 Because the labcode backend runs each op out-of-process on a wall clock, the exact times
 (and makespan) may vary slightly between runs; the sequence and produced values do not.
 
+Every Object's view carries a reserved **`_id`** — labcode's implicit, value-layer Object
+identity (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §4). In the observation you can
+follow the *same* Plate (one `_id`) from `load` through `dispense`/`read` to `store`, and
+the Tube's `_id` round-trips from the input boundary to the output. The ids are
+reproducible (a seeded, provenance-keyed generator), so these outputs are stable to
+re-generate.
+
 > The scripts here are mocks (they just return values / reference their locals). Replace a
 > script's body with real device calls — e.g. `robot.move(from_spot, to_spot)` in a
 > transport, or an instrument read in `read` — to drive real hardware; the code may

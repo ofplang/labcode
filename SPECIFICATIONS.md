@@ -128,7 +128,60 @@ Cadence: the effective poll period is `poll_interval × seconds_per_tick`. labco
 sub-second, which would flood the replan loop); `lc run --seconds-per-tick/--speed/
 --poll-interval/--margin` override it.
 
-## 4. Not yet in this version (roadmap)
+## 4. Object identity — the reserved `_id` view key
+
+labcode gives every Object a stable, value-layer identity so it can be traced across
+steps and in the observation document. The identity lives in the Object's **view** under
+the reserved key **`_id`** (a `String`). This is a dialect feature layered on portable
+v0: the workflow the user writes carries no `_id`; `lc run` injects and mints it.
+
+### 4.1 Type rewrite
+
+Before running, `lc run` rewrites the workflow in memory: it adds `_id: { type: String }`
+to the `view` of **every `domain: object` type** (creating `view` if the type had none).
+`_id` is an ordinary legal v0 view field (a leading-underscore identifier, not reserved
+in core, and a primitive `String`), so the rewritten document validates and schedules
+unchanged, and the runner's closed-shape view conformance treats `_id` as a normal
+declared field. labcode runs this rewritten document directly (no temp file:
+`ofplang.run.run_workflow` accepts an in-memory document).
+
+**Reserved (error).** A user type that itself declares a `_id` view field is rejected at
+the dialect front door — labcode owns `_id`, and silently clobbering the field would be
+worse than a clear error.
+
+### 4.2 Where an id comes from
+
+An Object's `_id` is set at its two points of origin, then **carried** everywhere else —
+`objects.map` and transport copy the whole view, so `_id` propagates for free:
+
+- **`objects.create`** — a newly created Object's `_id` is minted when the operation
+  produces it (in the backend's output fill). A device script need not know about `_id`:
+  it returns only what it computes, and the fill supplies `_id` (like any other unset
+  output, §1.2).
+- **run boundary** — a whole-workflow Object *input* enters at the boundary; `lc run`
+  mints its `_id` (filling any other declared view field with a typed default so the
+  seeded value conforms), **unless the boundary already carries one** — so a result
+  boundary fed back in round-trips its ids.
+- **`objects.map`** — a mapped Object output carries its input's `_id` unchanged
+  (identity preserved), even if a §22.2-strict script returned the port explicitly.
+
+### 4.3 Reproducibility
+
+Ids come from a swappable generator (`labcode.idgen.IdGenerator`). The default
+(`SeededUuid4Generator`) mints **reproducible** uuid4-shaped ids from a seed and a
+*provenance key* — the node instance + output port for a create, the port name for a
+boundary input — **not** draw order. So the same workflow yields the same ids on every
+run, and the wall-clock backend's jittering completion order cannot change them (which is
+what keeps checked-in example observations stable). A real run wanting globally-unique
+ids per physical Object swaps in `RealUuid4Generator` (via
+`labcode_backend_factory(id_generator=...)`).
+
+> The provenance key is the runner's node-instance identity + port. Today each create
+> node runs once, so node-path + port is unique; when dynamic control flow (e.g.
+> `do_while`) is added, that node-instance identity must include the iteration index so
+> ids stay unique and reproducible.
+
+## 5. Not yet in this version (roadmap)
 
 - **Device / transporter `x-labcode`** — connection and availability information
   (e.g. SiLA2 address) consolidated on `devices[]` / `transporters[]`, used for a

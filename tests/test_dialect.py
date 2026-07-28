@@ -9,6 +9,17 @@ def _env(*modes: dict) -> dict:
     return {"processes": {"m": {"modes": list(modes)}}}
 
 
+def test_reserved_id_view_field_is_rejected():
+    # `_id` is labcode's implicit Object identity; a user type that declares it collides.
+    workflow = {
+        "types": {"Plate": {"domain": "object", "view": {"_id": {"type": "String"}}}},
+        "processes": {},
+    }
+    result = validate_dialect(workflow, {"processes": {}})
+    assert not result.ok
+    assert any("_id" in e and "Plate" in e for e in result.errors)
+
+
 def test_valid_env_script_passes():
     result = validate_dialect(
         {"processes": {}},
