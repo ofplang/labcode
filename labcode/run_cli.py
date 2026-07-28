@@ -122,14 +122,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # labcode dialect front door: validate the env x-labcode extension (P5) over the
     # workflow (for (1)/(2) exclusivity) and the environment. Warnings are printed but do
-    # not block; errors are a usage error.
-    workflow_doc, err = _read_document(args.workflow, "workflow")
-    if err is not None:
-        return err
+    # not block; errors are a usage error. Use the *expanded* workflow the shared front
+    # door already resolved (`fd.document`), so `$import` is applied once, no second read
+    # happens, and imported types/ops are visible to the dialect check and `_id` setup.
+    workflow_doc = fd.document or {}
     env_doc, err = _read_document(args.env, "environment")
     if err is not None:
         return err
-    dialect = validate_dialect(workflow_doc or {}, env_doc or {})
+    dialect = validate_dialect(workflow_doc, env_doc or {})
     for warning in dialect.warnings:
         print(f"lc run: warning: {warning}", file=sys.stderr)
     if not dialect.ok:
@@ -153,7 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # declare `_id`, mint the boundary's Object ids, share one IdGenerator with the
         # backend); it runs the rewritten document in memory (no temp file).
         result = run_labcode(
-            workflow_doc or {},
+            workflow_doc,
             args.env,
             boundary,
             running_task_margin=margin,

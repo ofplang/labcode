@@ -82,6 +82,42 @@ def test_e2e_lc_run_stamps_deterministic_object_ids(tmp_path):
     assert doc1 == yaml.safe_load(rb2.read_text(encoding="utf-8"))  # deterministic
 
 
+def test_e2e_lc_run_expands_imported_object_types_and_stamps_ids(tmp_path):
+    # `$import` and `_id` compose: the object types (Plate/Tube) are moved into an
+    # imported fragment, so the shared front door must expand it first; then
+    # LabcodeRunner injects `_id` into those *imported* object types. The Tube id
+    # still round-trips, proving expansion happens before `_id` injection.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    import yaml
+
+    src = (EXAMPLES / "plate_line.workflow.yaml").read_text(encoding="utf-8")
+    head, body = src[: src.index("types:")], src[src.index("processes:") :]
+    (tmp_path / "plate_types.yaml").write_text(
+        "Plate:\n  domain: object\n  view:\n    barcode: { type: String }\n"
+        "Tube:\n  domain: object\n",
+        encoding="utf-8",
+    )
+    wf = tmp_path / "plate_line.workflow.yaml"
+    wf.write_text(head + "types:\n  $import: ./plate_types.yaml\n" + body, encoding="utf-8")
+
+    rb = tmp_path / "rb.yaml"
+    code = run_cli.main(
+        [
+            str(wf),
+            "--env", str(EXAMPLES / "plate_line.env.yaml"),
+            "--boundary", str(EXAMPLES / "plate_line.boundary.yaml"),
+            "--seconds-per-tick", "0.001",
+            "-o", str(tmp_path / "status.yaml"),
+            "--boundary-out", str(rb),
+        ]
+    )
+    assert code == 0
+    doc = yaml.safe_load(rb.read_text(encoding="utf-8"))
+    out_tube = doc["boundary"]["outputs"]["tube"]["view"]
+    in_tube = doc["boundary"]["inputs"]["tube"]["view"]
+    assert out_tube["_id"] and out_tube["_id"] == in_tube["_id"]
+
+
 def test_cli_dialect_error_is_a_usage_error(tmp_path, capsys):
     # A non-python x-labcode script is rejected at the dialect front door (exit 2), before
     # any execution.

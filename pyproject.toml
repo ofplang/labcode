@@ -32,9 +32,9 @@ classifiers = [
 # support so a described workflow passes the front door (spec 2.7, >=0.1.2). `validate`
 # and `schedule` subcommands still forward unchanged.
 dependencies = [
-    "ofplang-validate>=0.1.2",
+    "ofplang-validate>=0.1.3",
     "ofplang-schedule>=0.1.3",
-    "ofplang-run>=0.1.9",
+    "ofplang-run>=0.1.10",
 ]
 
 [project.urls]
