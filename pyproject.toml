@@ -44,6 +44,11 @@ Repository = "https://github.com/ofplang/labcode"
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
 dev = ["pytest>=7.0", "ruff>=0.16", "mypy>=1.11"]
+# Only the SiLA2 integration example needs a SiLA2 client, and it needs it in whatever
+# interpreter runs the scripts: labcode launches each one with `sys.executable`. It is an
+# extra rather than a dependency because labcode itself never speaks SiLA2 -- an environment
+# script does, and only if its author wrote one that does.
+sila2 = ["sila2>=0.14"]
 
 [project.scripts]
 # The labcode command. Subcommands (`lc validate|schedule|run`) forward to the

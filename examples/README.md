@@ -83,3 +83,70 @@ re-generate.
 > script's body with real device calls — e.g. `robot.move(from_spot, to_spot)` in a
 > transport, or an instrument read in `read` — to drive real hardware; the code may
 > `import` anything the host Python can.
+
+## `sila2_seal` — the same idea, driven by real SiLA2 servers
+
+Where `plate_line`'s scripts are mocks that only return values, this example's scripts open
+SiLA2 connections and issue real commands. It is the integration check for labcode's SiLA2
+story: labcode schedules, dispatches out-of-process, a script talks SiLA2, an instrument acts,
+and the produced value comes back through labcode's partial outputs.
+
+```
+   (in) plate ──[move]──▶ seal ──[move]──▶ (out) plate
+                            │
+                    (out) cycle_count
+```
+
+- [`sila2_seal.workflow.yaml`](sila2_seal.workflow.yaml) is portable ofplang v0: one Plate in,
+  the *same* Plate out (`objects.map`), plus the Pure Data reading `cycle_count`.
+- [`sila2_seal.env.yaml`](sila2_seal.env.yaml) drives a plate sealer over SiLA2 and a transport
+  arm's `Pick`/`Place`. `cycle_count` is **a real reading**: the script asks the instrument how
+  many cycles it has performed, and the number goes up because this run performed one.
+- [`sila2_seal.boundary.yaml`](sila2_seal.boundary.yaml) puts the Plate in and takes it out at
+  the *same* spot, so the run is a **round trip** and can be repeated without anyone putting
+  the world back.
+
+### Prerequisites
+
+**Verified against [ofplang-sila2-backend](https://github.com/kaizu/sila2-demo) v0.3.0 (commit
+`0c3c4c8`)** — a virtual lab of mock SiLA2 instrument servers. That lab is a *reference, not a
+requirement*: the scripts speak plain SiLA2, so pointing them at real instruments is a matter
+of changing the host and port in the environment. The version is recorded so a run without
+hardware has something known to reproduce against; it is deliberately not asserted on, since
+checking a server's name would be the one thing that stopped this working against hardware.
+
+```sh
+# in the reference lab
+docker compose up -d
+
+# here: the client library has to be importable by the interpreter that runs the scripts
+uv sync --extra sila2
+```
+
+The world must be at t=0 — one plate on `station.slot1`. The round trip puts it back, so
+repeated runs need no intervention; a run that failed part way may not have, and restoring the
+world is the **operator's** job, not the workflow's:
+
+```sh
+curl -X POST http://localhost:8001/reseed
+```
+
+### Run it
+
+```sh
+python examples/run_sila2_seal.py
+```
+
+Exit code 0 means every check passed, so this is a check rather than a demo. It asserts only on
+what a real client can see — the schedule, the produced boundary, the observation — and **never
+contacts the lab's world-state service**: that service stands in for the physical world, which
+exposes no such interface, so a client that read it could not be pointed at hardware.
+
+Pass `--artifacts DIR` to keep the run's status, observation and result boundary (they are
+otherwise written to a temporary directory, since their timings vary between runs).
+
+> **Only some instruments can be named by a portable workflow yet.** v0 identifiers are
+> `[A-Za-z_][A-Za-z0-9_]*`, so a device id cannot contain a hyphen — which rules out the
+> reference lab's `seal-remover`, `thermal-cycler` and `trolley-arm`. This example uses
+> `plateloc` for that reason. (The arm is fine: labcode names the transporter `arm` and never
+> names the arm's own spot.)

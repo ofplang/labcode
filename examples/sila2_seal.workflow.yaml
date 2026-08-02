@@ -1,0 +1,60 @@
+# A labcode example driven by REAL SiLA2 servers: a Plate is carried to a plate sealer,
+# sealed, and carried back. Every step's *how* -- the seal and both moves -- is supplied by
+# the environment as an `x-labcode.script` that talks SiLA2 (see sila2_seal.env.yaml); this
+# file is portable ofplang v0 and says only *what*.
+#
+#   (in) plate ──▶ seal ──▶ (out) plate
+#                    │
+#            (out) cycle_count
+#
+# The workflow takes one `Plate` in and passes the *same* Plate out (identity preserved,
+# objects.map), alongside the Pure Data reading `cycle_count`. The Plate is not created here:
+# it enters and leaves at the run boundary (see sila2_seal.boundary.yaml), which is what makes
+# the run a round trip and therefore repeatable.
+#
+# `cycle_count` is a real reading, not a mock value: the seal script asks the instrument how
+# many cycles it has performed, and the number goes up because this run performed one. That is
+# the point of this example -- it exercises labcode's partial outputs against an instrument
+# that actually reports a value, rather than against a script that invents one.
+spec_version: "0.0"
+
+types:
+  # A microplate. Declared with no view fields, like plate_line's Tube: the Plate arrives from
+  # the run boundary as a bare Object at a spot, and there is nothing about it this workflow
+  # reads. labcode still injects the reserved `_id`, so the same Plate can be followed from the
+  # input boundary to the output.
+  Plate:
+    domain: object
+
+processes:
+
+  # Object-bearing: the Plate goes in and the *same* Plate comes out (objects.map), and the
+  # sealer's cycle counter is reported as Pure Data.
+  seal:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:       { type: Plate, phase: data }   # same name as the input: the same plate
+      cycle_count: { type: Int,   phase: data }   # a count, so an integer
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  main:
+    kind: composite
+    inputs:
+      plate: { type: Plate, phase: data }         # the Plate comes in at the run boundary
+    outputs:
+      plate:       { type: Plate, phase: data }   # ...and the same Plate goes back out
+      cycle_count: { type: Int,   phase: data }
+    body:
+      nodes:
+        - id: Seal
+          process: seal
+          state:
+            plate: { from: inputs.plate }         # Object arc: a move is scheduled for it
+      returns:
+        plate:       { from: Seal.plate }
+        cycle_count: { from: Seal.cycle_count }
+entry: main
