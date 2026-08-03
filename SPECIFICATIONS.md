@@ -10,10 +10,15 @@ running it out-of-process on a wall clock.
 This document is the reference for the `x-labcode` extension; `labcode.dialect` is its
 conformance validator, run at the `lc run` front door.
 
-## 1. `x-labcode` on a process mode (P5)
+## 1. `x-labcode` in an environment (P5)
 
-An environment process mode (§5) may carry an `x-labcode` mapping. In this version it
-holds a single key, `script`: the Python that carries out that `(process, mode)`.
+The extension appears in four places, each answering a different question: on a **process
+mode** and on a **transport route** it says *what to run* (a `script`, §1.1–§1.3); on a
+**device** and on a **transporter** it says *how to reach the machine* (a `connection`,
+§1.4). Nowhere else — see §1.5.
+
+An environment process mode (§5) may carry an `x-labcode` mapping holding a `script`: the
+Python that carries out that `(process, mode)`.
 
 ```yaml
 processes:
@@ -34,10 +39,24 @@ still validates and schedules as plain v0. Only labcode interprets it.
 
 ### 1.1 Shape
 
-- `x-labcode` MUST be a mapping.
+- `x-labcode` MUST be a mapping. On a process mode or a transport route its only key is
+  `script`.
 - `x-labcode.script`, if present, MUST be a mapping with:
   - `language`: MUST be `python`.
   - `code`: MUST be a string (an implementation-provided Python function body).
+  - `flavor` (optional, default `raw`): MUST be `raw` or `sila2` — how `code` is meant to
+    be run. `raw` is the whole function body, written by its author (a script that speaks
+    SiLA2 by connecting for itself is `raw`). `sila2` is the command body alone, with the
+    client(s) named by the devices' `connection` (§1.4) supplied around it.
+    **This version does not interpret `sila2`**: the schema accepts it so an environment
+    can be written against it, but the code still runs as written, and `lc run` warns to
+    that effect.
+
+**Unknown keys are an error**, both in `x-labcode` and in `script`. A key this version
+does not know is either a typo or a feature it does not have; either way, ignoring it
+would mean a document that says one thing and a run that does another (a misspelled
+`flavour:` running unwrapped, a `probe:` monitoring nothing). This applies only inside
+`x-labcode` — the workflow's own `script` (v0 §22) belongs to `ofplang-validate`.
 
 ### 1.2 Calling convention (process)
 
@@ -98,6 +117,63 @@ output is verified. Success is "it ran without raising"; an exception is a grace
 
 A route with no `x-labcode.script` runs as a plain timed move — the runner's material
 bookkeeping only, with no device command (a warned no-op for a real move, from != to).
+
+### 1.4 `x-labcode` on a device or a transporter
+
+An environment `devices[]` or `transporters[]` entry may carry an `x-labcode` whose only
+key is `connection`: **where that machine is**, written once per physical machine rather
+than repeated in every script that drives it.
+
+```yaml
+devices:
+  - id: plateloc
+    spots: [stage]
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
+
+transporters:
+  - id: arm
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50057, insecure: true }
+```
+
+| field | required | default | meaning |
+|---|---|---|---|
+| `kind` | no | `sila2` | the protocol; `sila2` is the only value this version defines |
+| `host` | **yes** | — | a non-empty string |
+| `port` | **yes** | — | an integer in 1..65535 |
+| `insecure` | no | `false` | connect without TLS |
+
+**TLS is not supported in this version.** There is nowhere in the schema to put the
+credentials it needs (a root certificate, at least), so a `connection` whose effective
+`insecure` is false is rejected at the front door — including one that simply omits the
+key and takes the default. Every connection must therefore say `insecure: true` today.
+The default stays `false` so that supporting TLS later is a pure addition: new fields,
+and the error goes away. The check applies to every declared `connection`, whether or not
+a script uses it.
+
+**A `sila2` script needs somewhere to connect** (checked at the front door, though not yet
+acted on):
+
+- a mode script with `flavor: sila2` requires **at least one** of that mode's `devices[]`
+  to declare a `connection`;
+- a transport script with `flavor: sila2` requires that route's `transporter` to declare
+  one.
+
+Declaring a `connection` on a device no script connects to is allowed — it is how an
+environment is prepared before the scripts that use it are written.
+
+### 1.5 Where an `x-labcode` may appear
+
+The four positions of §1 are the only ones: `processes.<p>.modes[]`, `transports[]`,
+`devices[]` and `transporters[]`. An `x-labcode` anywhere else in the environment — at the
+document root, on a process, beside `time` — is an **error**. Nothing would read it, and
+`ofplang-schedule` tolerates an `x-` key at *every* position without interpreting it, so a
+misplaced block would otherwise stay silent forever.
+
+This rule covers the environment only. An `x-labcode` in the **workflow** is not reported:
+that document is portable v0, read by other implementations, and what extension keys it
+carries is not labcode's business.
 
 ## 2. Code source resolution and exclusivity
 
@@ -183,6 +259,12 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 ## 5. Not yet in this version (roadmap)
 
-- **Device / transporter `x-labcode`** — connection and availability information
-  (e.g. SiLA2 address) consolidated on `devices[]` / `transporters[]`, used for a
-  connect/command/disconnect wrapper and for `down_devices` availability probing.
+- **Running a `sila2` script as one** — wrapping the code of a `flavor: sila2` script
+  (§1.1) in a connect/disconnect prologue built from the devices' `connection` (§1.4), so
+  the script is the command body alone and the client(s) are supplied around it. The
+  schema is in place; the execution is not.
+- **Availability probing** — a `probe` block (enable / timeout / interval) on a device,
+  with a document-wide default at the environment root, driving `down_devices()` so the
+  scheduler routes around a machine that cannot be reached. Writing `probe` today is an
+  error rather than something ignored (§1.1).
+- **TLS** — the fields a secure connection needs, lifting the restriction in §1.4.

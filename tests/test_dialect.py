@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
+
 from labcode.dialect import validate_dialect
+
+EXAMPLES = Path(__file__).parent.parent / "examples"
+
+#: A connection to the reference lab's plate sealer. `insecure` is true because TLS has
+#: nowhere to keep its credentials in this version (see `test_tls_*` below).
+CONNECTION = {"kind": "sila2", "host": "127.0.0.1", "port": 50053, "insecure": True}
 
 
 def _env(*modes: dict) -> dict:
     return {"processes": {"m": {"modes": list(modes)}}}
+
+
+def _sila2_script(**overrides) -> dict:
+    """An `x-labcode` holding a `sila2`-flavored script."""
+    script = {"language": "python", "code": "return {}", "flavor": "sila2"}
+    script.update(overrides)
+    return {"script": script}
+
+
+def _device(identifier: str = "reader", **extra) -> dict:
+    return {"id": identifier, "spots": ["stage"], **extra}
 
 
 def test_reserved_id_view_field_is_rejected():
@@ -102,3 +123,257 @@ def test_same_spot_scriptless_transport_not_warned():
     # A same-spot move (from == to) is a physical no-op by design, not a missing script.
     result = validate_dialect({}, _transport_env({"transporter": "t", "from": "a", "to": "a"}))
     assert not any("no-op move" in w for w in result.warnings)
+
+
+# -- where an x-labcode may appear ----------------------------------------------
+
+
+def test_x_labcode_at_the_environment_root_is_rejected():
+    # The natural guess for a document-wide default block -- and read by nobody, since
+    # ofplang-schedule tolerates an x- key at every position without interpreting it.
+    env = _env({"id": "v0"})
+    env["x-labcode"] = {"probe": {"enabled": True}}
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("root" in e and "not supported" in e for e in result.errors)
+
+
+def test_x_labcode_on_a_process_is_rejected():
+    env = _env({"id": "v0"})
+    env["processes"]["m"]["x-labcode"] = {"connection": CONNECTION}
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("processes.m" in e for e in result.errors)
+
+
+def test_x_labcode_at_a_supported_position_is_not_reported():
+    result = validate_dialect(
+        {}, {"processes": {}, "devices": [_device(**{"x-labcode": {"connection": CONNECTION}})]}
+    )
+    assert result.ok
+
+
+# -- closed shapes ----------------------------------------------------------------
+
+
+def test_unknown_key_in_x_labcode_is_rejected():
+    result = validate_dialect({}, _env({"id": "v0", "x-labcode": {"scrpit": {}}}))
+    assert not result.ok
+    assert any("unknown key 'scrpit'" in e for e in result.errors)
+
+
+def test_probe_is_reported_as_not_supported_yet():
+    # Silently ignoring a monitoring policy is the worst way to learn it does nothing.
+    result = validate_dialect({}, _env({"id": "v0", "x-labcode": {"probe": {"enabled": True}}}))
+    assert not result.ok
+    assert any("probe is not supported" in e for e in result.errors)
+
+
+def test_unknown_key_in_script_is_rejected():
+    # `flavour` is the British spelling of a key that decides how the code is run; left
+    # ignored it would run raw and fail on an undefined `client`.
+    result = validate_dialect(
+        {},
+        _env({"id": "v0", "x-labcode": {
+            "script": {"language": "python", "code": "x", "flavour": "sila2"}}}),
+    )
+    assert not result.ok
+    assert any("unknown key 'flavour'" in e for e in result.errors)
+
+
+def test_flavor_must_be_known():
+    result = validate_dialect({}, _env({"id": "v0", "x-labcode": _sila2_script(flavor="opcua")}))
+    assert not result.ok
+    assert any("flavor" in e for e in result.errors)
+
+
+def test_raw_flavor_is_the_default_and_passes():
+    result = validate_dialect(
+        {}, _env({"id": "v0", "x-labcode": {"script": {"language": "python", "code": "x"}}})
+    )
+    assert result.ok
+    assert not any("flavor" in w for w in result.warnings)
+
+
+def test_sila2_flavor_is_warned_as_not_interpreted_yet():
+    # Step B wraps the code with a connect/disconnect prologue; until then it runs as
+    # written, and saying so beats an undefined `client` at run time.
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": CONNECTION}})]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+    assert any("not interpreted" in w for w in result.warnings)
+
+
+# -- device / transporter connections ----------------------------------------------
+
+
+def _device_env(*devices: dict) -> dict:
+    return {"processes": {}, "devices": list(devices)}
+
+
+def test_device_x_labcode_unknown_key_is_rejected():
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"script": {}}})))
+    assert not result.ok
+    assert any("unknown key 'script'" in e for e in result.errors)
+
+
+def test_connection_must_be_a_mapping():
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"connection": "here"}})))
+    assert not result.ok
+    assert any("connection must be a mapping" in e for e in result.errors)
+
+
+def test_connection_requires_a_host_and_a_port():
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"connection": {}}})))
+    assert not result.ok
+    assert any("connection.host" in e for e in result.errors)
+    assert any("connection.port" in e for e in result.errors)
+
+
+def test_connection_port_must_not_be_a_boolean():
+    # `bool` is an `int` in Python, so an unguarded check would take `true` as port 1.
+    connection = {**CONNECTION, "port": True}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "connection": connection}})))
+    assert not result.ok
+    assert any("connection.port" in e for e in result.errors)
+
+
+def test_connection_kind_must_be_sila2():
+    connection = {**CONNECTION, "kind": "opcua"}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "connection": connection}})))
+    assert not result.ok
+    assert any("connection.kind" in e for e in result.errors)
+
+
+def test_connection_unknown_key_is_rejected():
+    connection = {**CONNECTION, "hostname": "127.0.0.1"}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "connection": connection}})))
+    assert not result.ok
+    assert any("unknown key 'hostname'" in e for e in result.errors)
+
+
+# The two tests below fix a *limitation*, not a rule: when TLS gains the fields it needs
+# (a root certificate and friends), both expectations have to be updated, not deleted.
+def test_tls_is_rejected_when_insecure_is_not_declared():
+    connection = {key: value for key, value in CONNECTION.items() if key != "insecure"}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "connection": connection}})))
+    assert not result.ok
+    assert any("insecure" in e and "defaults to false" in e for e in result.errors)
+
+
+def test_tls_is_rejected_when_insecure_is_false():
+    connection = {**CONNECTION, "insecure": False}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "connection": connection}})))
+    assert not result.ok
+    assert any("TLS is not supported" in e for e in result.errors)
+
+
+def test_two_devices_of_the_same_id_with_a_connection_are_ambiguous():
+    result = validate_dialect(
+        {},
+        _device_env(
+            _device(**{"x-labcode": {"connection": CONNECTION}}),
+            _device(**{"x-labcode": {"connection": {**CONNECTION, "port": 50054}}}),
+        ),
+    )
+    assert not result.ok
+    assert any("more than once" in e for e in result.errors)
+
+
+def test_a_transporter_connection_passes():
+    env = {"processes": {}, "transporters": [{"id": "arm", "x-labcode": {
+        "connection": CONNECTION}}]}
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+
+
+# -- a sila2 script needs somewhere to connect ---------------------------------------
+
+
+def test_sila2_mode_without_a_connected_device_is_rejected():
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device()]
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("none of its devices" in e for e in result.errors)
+
+
+def test_sila2_mode_naming_an_undeclared_device_says_so():
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("not declared in devices[]" in e for e in result.errors)
+
+
+def test_sila2_mode_with_no_devices_is_rejected():
+    result = validate_dialect({}, _env({"id": "v0", "x-labcode": _sila2_script()}))
+    assert not result.ok
+    assert any("no devices to connect to" in e for e in result.errors)
+
+
+def test_sila2_mode_needs_only_one_connected_device():
+    # A mode may drive several devices; one reachable client is enough to run.
+    env = _env({"id": "v0", "devices": ["helper", "reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device("helper"), _device(**{"x-labcode": {"connection": CONNECTION}})]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+
+
+def test_a_malformed_connection_is_not_also_reported_as_missing():
+    # One fault, one error: the shape complaint is where the mistake is.
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": {**CONNECTION, "port": 0}}})]
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert not any("none of its devices" in e for e in result.errors)
+
+
+def test_sila2_transport_with_a_connected_transporter_passes():
+    env = _transport_env({"transporter": "arm", "from": "a", "to": "b",
+                          "x-labcode": _sila2_script()})
+    env["transporters"] = [{"id": "arm", "x-labcode": {"connection": CONNECTION}}]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+
+
+def test_sila2_transport_without_a_transporter_connection_is_rejected():
+    env = _transport_env({"transporter": "arm", "from": "a", "to": "b",
+                          "x-labcode": _sila2_script()})
+    env["transporters"] = [{"id": "arm"}]
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("declares no x-labcode.connection" in e for e in result.errors)
+
+
+def test_sila2_transport_naming_an_undeclared_transporter_says_so():
+    env = _transport_env({"transporter": "arm", "from": "a", "to": "b",
+                          "x-labcode": _sila2_script()})
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("not declared in transporters[]" in e for e in result.errors)
+
+
+# -- the shipped examples ------------------------------------------------------------
+
+
+def test_the_examples_still_pass():
+    # Step A adds schema only: an environment written for 0.1.2 must be unaffected.
+    for name in ("plate_line", "sila2_seal"):
+        workflow = yaml.safe_load((EXAMPLES / f"{name}.workflow.yaml").read_text(encoding="utf-8"))
+        environment = yaml.safe_load((EXAMPLES / f"{name}.env.yaml").read_text(encoding="utf-8"))
+        result = validate_dialect(workflow, environment)
+        assert result.ok, (name, result.errors)
+
+
+def test_a_mode_without_an_id_is_located_by_its_position():
+    # The examples leave `id` out (the runner fills it in later), so a message that said
+    # "mode None" would point at every one of them equally.
+    result = validate_dialect({}, _env({"devices": ["reader"], "x-labcode": "oops"}))
+    assert not result.ok
+    assert any("mode #0" in e for e in result.errors)
