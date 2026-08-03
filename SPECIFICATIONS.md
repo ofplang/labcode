@@ -15,7 +15,7 @@ conformance validator, run at the `lc run` front door.
 The extension appears in four places, each answering a different question: on a **process
 mode** and on a **transport route** it says *what to run* (a `script`, §1.1–§1.3); on a
 **device** and on a **transporter** it says *how to reach the machine* (a `connection`,
-§1.4). Nowhere else — see §1.5.
+§1.4), which is what lets a script be the commands alone (§1.5). Nowhere else — see §1.6.
 
 An environment process mode (§5) may carry an `x-labcode` mapping holding a `script`: the
 Python that carries out that `(process, mode)`.
@@ -45,12 +45,10 @@ still validates and schedules as plain v0. Only labcode interprets it.
   - `language`: MUST be `python`.
   - `code`: MUST be a string (an implementation-provided Python function body).
   - `flavor` (optional, default `raw`): MUST be `raw` or `sila2` — how `code` is meant to
-    be run. `raw` is the whole function body, written by its author (a script that speaks
-    SiLA2 by connecting for itself is `raw`). `sila2` is the command body alone, with the
-    client(s) named by the devices' `connection` (§1.4) supplied around it.
-    **This version does not interpret `sila2`**: the schema accepts it so an environment
-    can be written against it, but the code still runs as written, and `lc run` warns to
-    that effect.
+    be run (§1.6). `sila2` is the **recommended** way to drive a SiLA2 lab: the code is the
+    commands alone and labcode supplies the clients. `raw` is the whole function body,
+    written by its author — the general escape hatch, and what a script that connects for
+    itself (or speaks something other than SiLA2) uses.
 
 **Unknown keys are an error**, both in `x-labcode` and in `script`. A key this version
 does not know is either a typo or a feature it does not have; either way, ignoring it
@@ -147,13 +145,13 @@ transporters:
 **TLS is not supported in this version.** There is nowhere in the schema to put the
 credentials it needs (a root certificate, at least), so a `connection` whose effective
 `insecure` is false is rejected at the front door — including one that simply omits the
-key and takes the default. Every connection must therefore say `insecure: true` today.
+key and takes the default — and refused again if a script reaches the connect helper
+directly. Every connection must therefore say `insecure: true` today.
 The default stays `false` so that supporting TLS later is a pure addition: new fields,
 and the error goes away. The check applies to every declared `connection`, whether or not
 a script uses it.
 
-**A `sila2` script needs somewhere to connect** (checked at the front door, though not yet
-acted on):
+**A `sila2` script needs somewhere to connect** (checked at the front door):
 
 - a mode script with `flavor: sila2` requires **at least one** of that mode's `devices[]`
   to declare a `connection`;
@@ -163,7 +161,42 @@ acted on):
 Declaring a `connection` on a device no script connects to is allowed — it is how an
 environment is prepared before the scripts that use it are written.
 
-### 1.5 Where an `x-labcode` may appear
+### 1.5 Calling convention (`flavor: sila2`)
+
+A `sila2` script is the **commands alone**: labcode opens a client to each of the
+operation's machines, runs the code with them in scope, and closes them afterwards. On top
+of the input ports of §1.2 (or the transport locals of §1.3), the code sees:
+
+| name | meaning |
+|---|---|
+| `sila2_clients` | the clients by **device id** (`transporter id` for a transport), in `devices[]` order, holding **only** the machines that declared a `connection` |
+| `sila2_client` | the first of them — the one name a single-machine operation needs |
+
+```yaml
+x-labcode:
+  script:
+    language: python
+    flavor: sila2
+    code: |
+      # `sila2_client` is already connected to this mode's device.
+      return {"od": sila2_client.OpticalDensityProvider.MeasureOD().OD}
+```
+
+- **These two names are reserved.** A script's inputs are bound as its function's
+  parameters, so an input port of the same name would be silently overwritten by a client;
+  a process that declares one is rejected at the front door (as a `_id` view field is,
+  §4.1).
+- **One connection per operation**, opened before the code runs and closed after it — on
+  any exit, including a `return` or an exception, and including a *later* connection
+  failing after an earlier one opened. There is no pooling and no reconnection: reaching an
+  instrument is assumed, and failing to is an ordinary operation failure naming the machine.
+- **Everything else is still the script's own.** The flavor supplies connections, nothing
+  more: waiting for an observable command to finish (the standard `sila2` polling pattern)
+  belongs in the code, as it does in a `raw` script.
+- A `sila2` script is only interpreted where the dialect is — in an environment
+  `x-labcode`. A workflow's own `script` (v0 §22) has no `flavor`.
+
+### 1.6 Where an `x-labcode` may appear
 
 The four positions of §1 are the only ones: `processes.<p>.modes[]`, `transports[]`,
 `devices[]` and `transporters[]`. An `x-labcode` anywhere else in the environment — at the
@@ -259,10 +292,6 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 ## 5. Not yet in this version (roadmap)
 
-- **Running a `sila2` script as one** — wrapping the code of a `flavor: sila2` script
-  (§1.1) in a connect/disconnect prologue built from the devices' `connection` (§1.4), so
-  the script is the command body alone and the client(s) are supplied around it. The
-  schema is in place; the execution is not.
 - **Availability probing** — a `probe` block (enable / timeout / interval) on a device,
   with a document-wide default at the environment root, driving `down_devices()` so the
   scheduler routes around a machine that cannot be reached. Writing `probe` today is an

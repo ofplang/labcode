@@ -41,6 +41,14 @@ NODE_KEYS: tuple[str, ...] = ("connection",)
 CONNECTION_KEYS: tuple[str, ...] = ("kind", "host", "port", "insecure")
 
 
+#: The names a `sila2` script finds in its scope (the clients by device id, and the first
+#: of them). They are *reserved*: an input port of the same name would be silently
+#: overwritten by them, since a script's inputs are bound as its function's parameters.
+CLIENTS_LOCAL = "sila2_clients"
+CLIENT_LOCAL = "sila2_client"
+RESERVED_LOCALS: tuple[str, ...] = (CLIENTS_LOCAL, CLIENT_LOCAL)
+
+
 def script_flavor(script: Any) -> str:
     """The `flavor` of an ``x-labcode.script`` mapping; `FLAVOR_RAW` when it declares
     none. A malformed value reads as raw here -- the dialect validator rejects it at the
@@ -50,6 +58,17 @@ def script_flavor(script: Any) -> str:
         if isinstance(flavor, str):
             return flavor
     return FLAVOR_RAW
+
+
+def python_code(script: Any) -> str | None:
+    """The `code` of a python ``x-labcode.script`` mapping, or None (absent / not python).
+
+    A non-python script reads as absent so resolution falls through to the next source;
+    the dialect validator rejects it at the front door, so it is never silently mis-run."""
+    if isinstance(script, dict) and script.get("language") == "python":
+        code = script.get("code")
+        return code if isinstance(code, str) else ""
+    return None
 
 
 # -- connection ---------------------------------------------------------------

@@ -195,14 +195,33 @@ def test_raw_flavor_is_the_default_and_passes():
     assert not any("flavor" in w for w in result.warnings)
 
 
-def test_sila2_flavor_is_warned_as_not_interpreted_yet():
-    # Step B wraps the code with a connect/disconnect prologue; until then it runs as
-    # written, and saying so beats an undefined `client` at run time.
+def test_sila2_flavor_passes_without_complaint():
+    # The backend wraps such a script with its clients open, so there is nothing to warn
+    # about (Step A warned that the flavor was not yet interpreted; it now is).
     env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
     env["devices"] = [_device(**{"x-labcode": {"connection": CONNECTION}})]
     result = validate_dialect({}, env)
     assert result.ok, result.errors
-    assert any("not interpreted" in w for w in result.warnings)
+    assert not result.warnings
+
+
+def test_reserved_client_input_port_is_rejected():
+    # A script's inputs are bound as its function's parameters, so an input port named like
+    # an injected client would be silently overwritten by it.
+    workflow = {"processes": {"m": {"inputs": {"sila2_client": {"type": "Int"}}}}}
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": CONNECTION}})]
+    result = validate_dialect(workflow, env)
+    assert not result.ok
+    assert any("sila2_client" in e and "reserve" in e for e in result.errors)
+
+
+def test_reserved_names_are_free_for_a_raw_script():
+    # Nothing is injected into a raw script, so the names are the author's to use.
+    workflow = {"processes": {"m": {"inputs": {"sila2_client": {"type": "Int"}}}}}
+    env = _env({"id": "v0", "x-labcode": {"script": {"language": "python", "code": "x"}}})
+    result = validate_dialect(workflow, env)
+    assert result.ok, result.errors
 
 
 # -- device / transporter connections ----------------------------------------------
@@ -362,13 +381,22 @@ def test_sila2_transport_naming_an_undeclared_transporter_says_so():
 # -- the shipped examples ------------------------------------------------------------
 
 
-def test_the_examples_still_pass():
-    # Step A adds schema only: an environment written for 0.1.2 must be unaffected.
-    for name in ("plate_line", "sila2_seal"):
-        workflow = yaml.safe_load((EXAMPLES / f"{name}.workflow.yaml").read_text(encoding="utf-8"))
-        environment = yaml.safe_load((EXAMPLES / f"{name}.env.yaml").read_text(encoding="utf-8"))
+#: (workflow, environment) per shipped example. `sila2_seal` has two environments -- the
+#: `flavor: sila2` one and the `raw` reference -- for the one workflow.
+EXAMPLE_DOCUMENTS = (
+    ("plate_line.workflow.yaml", "plate_line.env.yaml"),
+    ("sila2_seal.workflow.yaml", "sila2_seal.env.yaml"),
+    ("sila2_seal.workflow.yaml", "sila2_seal.wrapped.env.yaml"),
+)
+
+
+def test_the_examples_pass_the_validator():
+    # Whatever the validator learns to reject, a shipped example must not be caught by it.
+    for workflow_name, environment_name in EXAMPLE_DOCUMENTS:
+        workflow = yaml.safe_load((EXAMPLES / workflow_name).read_text(encoding="utf-8"))
+        environment = yaml.safe_load((EXAMPLES / environment_name).read_text(encoding="utf-8"))
         result = validate_dialect(workflow, environment)
-        assert result.ok, (name, result.errors)
+        assert result.ok, (environment_name, result.errors)
 
 
 def test_a_mode_without_an_id_is_located_by_its_position():

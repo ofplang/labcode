@@ -17,6 +17,10 @@ so the resolver can look a mode's script up by ``(process, mode id)``. Resolutio
 3. ``None`` -- the op runs as a timed, typed-default no-op (a device not yet scripted);
    `labcode.dialect` warns about those at the front door.
 
+A script whose ``flavor`` is ``sila2`` is *wrapped* before it is handed to the child, so it
+runs with a client open to each of its machines (`labcode.sila2`). The wrapping is pure
+string synthesis here; the child stays a plain script runner that knows nothing about SiLA2.
+
 The default cadence is coarse (``seconds_per_tick`` ~ tens of seconds): the effective
 poll period is ``poll_interval * seconds_per_tick``, and a real device op wants to be
 polled at a human-observable cadence, not sub-second (which would flood the replan loop).
@@ -36,8 +40,16 @@ from ofplang.run.simulator import (
     default_device_model,
 )
 
+from labcode.extension import (
+    FLAVOR_SILA2,
+    device_connections,
+    python_code,
+    script_flavor,
+    transporter_connections,
+)
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
 from labcode.objectid import stamp_object_ids
+from labcode.sila2 import failing_code, targets_of, wrap
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
@@ -45,13 +57,24 @@ from labcode.objectid import stamp_object_ids
 DEFAULT_SECONDS_PER_TICK = 20.0
 
 
-def _python_code(script) -> str | None:
-    """The `code` of a python `x-labcode.script` mapping, or None (absent / non-python).
-    A non-python script is treated as absent here; the dialect validator rejects it at the
-    front door, so it is never silently mis-run."""
-    if isinstance(script, dict) and script.get("language") == "python":
-        return script.get("code") or ""
-    return None
+def _flavored(code: str, script, identifiers, connections, label: str) -> str:
+    """`code` as its flavor asks for it: a `sila2` script wrapped so its clients are open
+    (SPECIFICATIONS.md §1.1), a `raw` one unchanged.
+
+    `identifiers` are the machines the operation may connect to -- a mode's devices, or a
+    route's transporter. With none of them reachable the operation cannot run at all, which
+    is returned as *failing code* rather than raised: a resolver runs inside dispatch, where
+    an exception would escape the run instead of failing one operation. The dialect front
+    door rejects this case up front, so this is a backstop."""
+    if script_flavor(script) != FLAVOR_SILA2:
+        return code
+    targets = targets_of(identifiers, connections)
+    if not targets:
+        return failing_code(
+            f"labcode: {label} declares x-labcode.script.flavor 'sila2' but none of its "
+            f"machines declares an x-labcode.connection"
+        )
+    return wrap(code, targets)
 
 
 def make_code_resolver(environment: dict) -> Callable:
@@ -59,9 +82,10 @@ def make_code_resolver(environment: dict) -> Callable:
     normalised env dict, which keeps the ``x-labcode`` extension keys).
 
     The returned ``resolver(process, mode, inputs, definition) -> str | None`` maps the
-    dispatched ``(process, mode id)`` to its env ``x-labcode.script.code`` (2); failing
-    that, to the workflow definition's own ``script.code`` (1); failing that, ``None``
-    (a typed-default no-op). Only ``language: python`` scripts are run (the dialect
+    dispatched ``(process, mode id)`` to its env ``x-labcode.script.code`` (2) -- wrapped
+    with the SiLA2 clients of the mode's devices when the script's flavor asks for that;
+    failing that, to the workflow definition's own ``script.code`` (1); failing that,
+    ``None`` (a typed-default no-op). Only ``language: python`` scripts are run (the dialect
     validator rejects anything else at the front door, so a non-python script here is
     treated as absent rather than mis-run)."""
     modes_by_process: dict[str, dict] = {}
@@ -71,17 +95,23 @@ def make_code_resolver(environment: dict) -> Callable:
         modes_by_process[name] = {
             m.get("id"): m for m in (proc.get("modes") or []) if isinstance(m, dict)
         }
+    connections = device_connections(environment)
 
     def resolver(process, mode, inputs, definition) -> str | None:
         # (2) env x-labcode.script on the dispatched mode.
         mode_entry = (modes_by_process.get(process) or {}).get(str(mode)) or {}
         xlab = mode_entry.get("x-labcode")
         if isinstance(xlab, dict):
-            code = _python_code(xlab.get("script"))
+            script = xlab.get("script")
+            code = python_code(script)
             if code is not None:
-                return code
-        # (1) the workflow's own script process (v0 §22).
-        return _python_code((definition or {}).get("script"))
+                return _flavored(
+                    code, script, mode_entry.get("devices"), connections,
+                    f"process {process!r} mode {mode!r}",
+                )
+        # (1) the workflow's own script process (v0 §22). A workflow script carries no
+        # flavor: the dialect lives in the environment.
+        return python_code((definition or {}).get("script"))
 
     return resolver
 
@@ -91,15 +121,26 @@ def make_transport_resolver(environment: dict) -> Callable:
 
     The returned ``resolver(transporter, from_spot, to_spot) -> str | None`` maps a
     dispatched transport to its env ``transports[]`` route's ``x-labcode.script.code``,
-    matched exactly on ``(transporter, from, to)``; None when the route has no script (the
+    matched exactly on ``(transporter, from, to)`` -- wrapped with the transporter's SiLA2
+    client when the script's flavor asks for that; None when the route has no script (the
     transport then runs as a plain timed move -- bookkeeping only, no device command)."""
+    connections = transporter_connections(environment)
     routes: dict[tuple, str | None] = {}
     for transport in environment.get("transports") or []:
         if not isinstance(transport, dict):
             continue
-        key = (transport.get("transporter"), transport.get("from"), transport.get("to"))
+        transporter = transport.get("transporter")
+        key = (transporter, transport.get("from"), transport.get("to"))
         xlab = transport.get("x-labcode")
-        routes[key] = _python_code(xlab.get("script")) if isinstance(xlab, dict) else None
+        script = xlab.get("script") if isinstance(xlab, dict) else None
+        code = python_code(script)
+        if code is not None:
+            code = _flavored(
+                code, script, [transporter], connections,
+                f"transport {transporter!r} "
+                f"{transport.get('from')} -> {transport.get('to')}",
+            )
+        routes[key] = code
 
     def resolver(transporter, from_spot, to_spot) -> str | None:
         return routes.get((transporter, from_spot, to_spot))

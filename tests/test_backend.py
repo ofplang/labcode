@@ -8,6 +8,8 @@ and that the factory builds a wired `SubprocessBackend`.
 
 from __future__ import annotations
 
+import textwrap
+
 import pytest
 from ofplang.run.simulator import DeviceComputationError, SubprocessBackend
 
@@ -99,6 +101,67 @@ def test_transport_resolver_matches_route_exactly():
 def test_transport_resolver_none_without_script():
     env = {"transports": [{"transporter": "arm", "from": "a", "to": "b"}]}
     assert make_transport_resolver(env)("arm", "a", "b") is None
+
+
+# -- the sila2 flavor: the resolver wraps the code ------------------------------
+
+CONNECTION = {"kind": "sila2", "host": "127.0.0.1", "port": 50053, "insecure": True}
+
+
+def _sila2_mode_env(*, connected: bool = True) -> dict:
+    device = {"id": "reader", "spots": ["stage"]}
+    if connected:
+        device["x-labcode"] = {"connection": CONNECTION}
+    return {
+        "devices": [device],
+        "processes": {"measure": {"modes": [{
+            "id": "v0",
+            "devices": ["reader"],
+            "x-labcode": {"script": {
+                "language": "python", "flavor": "sila2",
+                "code": 'return {"od": sila2_client.MeasureOD()}',
+            }},
+        }]}},
+    }
+
+
+def test_resolver_wraps_a_sila2_flavor_script():
+    code = make_code_resolver(_sila2_mode_env())("measure", "v0", {}, None)
+    assert code is not None
+    assert "__lc_session" in code  # the clients are opened around it
+    assert "('reader', '127.0.0.1', 50053, True)" in code
+    assert "sila2_client.MeasureOD()" in code  # the author's line, untouched
+    compile(f"def _f():\n{textwrap.indent(code, '    ')}", "<wrapped>", "exec")
+
+
+def test_resolver_leaves_a_raw_script_unwrapped():
+    env = _sila2_mode_env()
+    env["processes"]["measure"]["modes"][0]["x-labcode"]["script"]["flavor"] = "raw"
+    code = make_code_resolver(env)("measure", "v0", {}, None)
+    assert code == 'return {"od": sila2_client.MeasureOD()}'
+
+
+def test_resolver_fails_a_sila2_script_with_nothing_to_connect_to():
+    # The front door rejects this; the backstop must still not run the code unwrapped (it
+    # would fail on an undefined client) nor raise inside dispatch.
+    code = make_code_resolver(_sila2_mode_env(connected=False))("measure", "v0", {}, None)
+    assert code is not None
+    assert code.startswith("raise RuntimeError(")
+    assert "MeasureOD" not in code
+
+
+def test_transport_resolver_wraps_a_sila2_flavor_script():
+    env = {
+        "transporters": [{"id": "arm", "x-labcode": {"connection": {**CONNECTION, "port": 50057}}}],
+        "transports": [{"transporter": "arm", "from": "a", "to": "b", "x-labcode": {"script": {
+            "language": "python", "flavor": "sila2",
+            "code": "sila2_client.Pick(LocationSpecifier=from_spot)",
+        }}}],
+    }
+    code = make_transport_resolver(env)("arm", "a", "b")
+    assert code is not None
+    assert "('arm', '127.0.0.1', 50057, True)" in code
+    assert "sila2_client.Pick(LocationSpecifier=from_spot)" in code
 
 
 TRANSPORT_ENV = {

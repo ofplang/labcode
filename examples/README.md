@@ -99,12 +99,43 @@ and the produced value comes back through labcode's partial outputs.
 
 - [`sila2_seal.workflow.yaml`](sila2_seal.workflow.yaml) is portable ofplang v0: one Plate in,
   the *same* Plate out (`objects.map`), plus the Pure Data reading `cycle_count`.
-- [`sila2_seal.env.yaml`](sila2_seal.env.yaml) drives a plate sealer over SiLA2 and a transport
-  arm's `Pick`/`Place`. `cycle_count` is **a real reading**: the script asks the instrument how
-  many cycles it has performed, and the number goes up because this run performed one.
+- [`sila2_seal.wrapped.env.yaml`](sila2_seal.wrapped.env.yaml) drives a plate sealer over SiLA2
+  and a transport arm's `Pick`/`Place`, written the **recommended** way — `flavor: sila2`.
+  `cycle_count` is **a real reading**: the script asks the instrument how many cycles it has
+  performed, and the number goes up because this run performed one.
 - [`sila2_seal.boundary.yaml`](sila2_seal.boundary.yaml) puts the Plate in and takes it out at
   the *same* spot, so the run is a **round trip** and can be repeated without anyone putting
   the world back.
+
+Each machine's address is declared **once**, on the device (or the transporter) that has it:
+
+```yaml
+devices:
+  - id: plateloc
+    spots: [stage]
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
+```
+
+…and each script is the **commands alone**. labcode opens `sila2_client` before the code runs
+and closes it afterwards — on a `return`, on an exception, and on a later connection failing
+after an earlier one opened:
+
+```yaml
+x-labcode:
+  script:
+    flavor: sila2
+    language: python
+    code: |
+      feature = sila2_client.PlateLocController
+      settle(feature.StartCycle(), "StartCycle")   # the wait is still the script's own
+      return {"cycle_count": int(feature.CycleCount.get())}
+```
+
+What the flavor supplies is connections, nothing more: waiting for an *observable* command to
+finish stays in the script (the standard `sila2` pattern), and the spot names still have to be
+the ones the lab declares — a name it does not know fails the move at the moment of use. See
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4–§1.5.
 
 ### Prerequisites
 
@@ -144,6 +175,31 @@ exposes no such interface, so a client that read it could not be pointed at hard
 
 Pass `--artifacts DIR` to keep the run's status, observation and result boundary (they are
 otherwise written to a temporary directory, since their timings vary between runs).
+
+### The same run, with each script connecting for itself
+
+[`sila2_seal.env.yaml`](sila2_seal.env.yaml) drives the *same* workflow through the same
+motions with `raw` scripts: no `connection` on the devices, and each script opening its own
+`SilaClient` (so the address appears in every script that talks to a machine, and closing it is
+the author's `with`). It is the low-level reference — what to write when the connection is not
+a plain SiLA2 one, or when the script needs to do something the flavor does not cover:
+
+```sh
+python examples/run_sila2_seal.py --env examples/sila2_seal.env.yaml
+```
+
+The two environments are interchangeable today but are **not promised to stay equivalent**; the
+`flavor: sila2` one is the example that follows the dialect.
+
+### Run every SiLA2 example
+
+```sh
+python examples/run_all_sila2_examples.py
+```
+
+Runs each environment above in turn (they are round trips, so they follow one another without
+intervention), prints a pass/fail summary, and exits non-zero if any failed. Only the examples
+that need the lab are included — `render_plate_line.py` needs nothing but Python.
 
 > **Only some instruments can be named by a portable workflow yet.** v0 identifiers are
 > `[A-Za-z_][A-Za-z0-9_]*`, so a device id cannot contain a hyphen — which rules out the

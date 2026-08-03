@@ -6,12 +6,18 @@ connections and issue real commands. What it proves is the whole path -- labcode
 dispatches out-of-process, a script talks SiLA2, an instrument acts, and the produced value
 comes back through labcode's partial outputs.
 
+Either environment for this workflow can be checked (`--env`): the default
+`sila2_seal.wrapped.env.yaml` uses `flavor: sila2`, where each machine's address is declared
+once and labcode opens the clients, and `sila2_seal.env.yaml` is the `raw` reference, where
+each script connects for itself. The checks below assert on the run's outcome, which the two
+share, so the same code checks both.
+
 VERIFIED AGAINST: ofplang-sila2-backend v0.3.0 (commit 0c3c4c8). That lab is a *reference*,
-not a requirement: `sila2_seal.env.yaml` speaks plain SiLA2 and can be pointed at real
-instruments by changing the host and port in it. The version is recorded so a run without
-hardware has something known to reproduce against -- it is deliberately NOT asserted on,
-because checking a server's name or version would be the one thing that stops this script
-working against the instruments it is meant to be portable to.
+not a requirement: both environments speak plain SiLA2 and can be pointed at real instruments
+by changing the host and port in them. The version is recorded so a run without hardware has
+something known to reproduce against -- it is deliberately NOT asserted on, because checking
+a server's name or version would be the one thing that stops this script working against the
+instruments it is meant to be portable to.
 
 WHAT IT DOES NOT DO: it never contacts the reference lab's world-state service. That service
 stands in for the physical world, which exposes no such interface, so a client that read it
@@ -50,8 +56,13 @@ from labcode.runner import run_labcode
 
 HERE = Path(__file__).parent
 WORKFLOW = HERE / "sila2_seal.workflow.yaml"
-ENVIRONMENT = HERE / "sila2_seal.env.yaml"
 BOUNDARY = HERE / "sila2_seal.boundary.yaml"
+# Two environments drive this workflow through the same motions: `sila2_seal.wrapped.env.yaml`
+# uses `flavor: sila2` (the recommended form -- the addresses are declared per machine and
+# labcode opens the clients), and `sila2_seal.env.yaml` is the `raw` reference, where each
+# script connects for itself. Either can be checked here; `--env` picks one.
+ENVIRONMENT = HERE / "sila2_seal.wrapped.env.yaml"
+RAW_ENVIRONMENT = HERE / "sila2_seal.env.yaml"
 
 # One real second per environment tick. The environment's durations are written in the same
 # units as the reference lab's realistic timing profile, so at 1.0 the two agree and the run
@@ -157,6 +168,13 @@ def check_outcome(status: dict, result_boundary: dict, observation: list[dict]) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
+        "--env",
+        metavar="ENV",
+        default=str(ENVIRONMENT),
+        help="the environment to check (default: the flavor: sila2 one; the raw reference is"
+        f" {RAW_ENVIRONMENT.name})",
+    )
+    parser.add_argument(
         "--seconds-per-tick",
         type=float,
         default=SECONDS_PER_TICK,
@@ -169,6 +187,10 @@ def main(argv: list[str] | None = None) -> int:
         " (default: a temporary directory)",
     )
     arguments = parser.parse_args(argv)
+    environment = Path(arguments.env)
+    if not environment.is_file():
+        print(f"run_sila2_seal: environment not found: {arguments.env}", file=sys.stderr)
+        return 1
 
     # Artifacts go to a temporary directory by default and are reported only when something
     # went wrong: their contents depend on real wall-clock timing, so they are evidence for a
@@ -178,19 +200,22 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.mkdir(parents=True, exist_ok=True)
         observation_path = artifacts / "observation.yaml"
 
-        print(f"validating {ENVIRONMENT.name} at the front door")
+        print(f"validating {environment.name} at the front door")
         try:
-            validate_front_door(WORKFLOW, ENVIRONMENT)
+            validate_front_door(WORKFLOW, environment)
         except CheckFailed as error:
             print(f"run_sila2_seal: {error}", file=sys.stderr)
             return 1
 
-        print(f"running {WORKFLOW.name} at {arguments.seconds_per_tick:g}s per tick")
+        print(
+            f"running {WORKFLOW.name} with {environment.name} "
+            f"at {arguments.seconds_per_tick:g}s per tick"
+        )
         boundary = load_document(str(BOUNDARY))
         try:
             result = run_labcode(
                 str(WORKFLOW),
-                str(ENVIRONMENT),
+                str(environment),
                 boundary,
                 # Mirror `lc run`'s cadence: a running-task margin of at least the poll
                 # interval, so an op that overruns its estimate does not get a successor
@@ -238,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 1
 
-    print("sila2_seal integration check passed.")
+    print(f"sila2_seal integration check passed ({environment.name}).")
     return 0
 
 

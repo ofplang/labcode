@@ -24,6 +24,8 @@ Three kinds of check:
     env ``x-labcode.script`` (2); that is ambiguous.
   - **a `sila2` script needs somewhere to connect**: its mode must have a device (or its
     route a transporter) that declares an ``x-labcode.connection``.
+  - **a `sila2` script's client names are reserved**: the process must not declare an input
+    port that one of them would overwrite.
   - **typed-default reachability** (a *warning*, not an error): a process with neither a
     workflow script nor any mode's ``x-labcode.script`` will run as a typed-default no-op
     (a device not yet scripted). Allowed -- convenient while mocking -- but surfaced.
@@ -39,6 +41,7 @@ from labcode.extension import (
     FLAVOR_SILA2,
     FLAVORS,
     NODE_KEYS,
+    RESERVED_LOCALS,
     SCRIPT_KEYS,
     SCRIPT_SITE_KEYS,
     TLS_INSECURE_NOT_DECLARED,
@@ -191,7 +194,7 @@ def _validate_nodes(environment: dict, key: str, kind: str, errors: list) -> Non
 # -- scripts --------------------------------------------------------------------
 
 
-def _validate_script(script: Any, label: str, errors: list, warnings: list) -> bool:
+def _validate_script(script: Any, label: str, errors: list) -> bool:
     """Shape-check an ``x-labcode.script``. Returns False if it is not a mapping at all
     (nothing further can be said about it)."""
     if not isinstance(script, dict):
@@ -211,14 +214,6 @@ def _validate_script(script: Any, label: str, errors: list, warnings: list) -> b
         errors.append(
             f"{label}: x-labcode.script.flavor must be one of "
             f"{', '.join(repr(known) for known in FLAVORS)} (got {flavor!r})"
-        )
-    elif script_flavor(script) == FLAVOR_SILA2:
-        # The schema accepts `sila2` already so an environment can be written against it,
-        # but nothing wraps the code yet: say so rather than let it run as if it were raw
-        # and fail on an undefined `client`.
-        warnings.append(
-            f"{label}: x-labcode.script.flavor 'sila2' is not interpreted in this version; "
-            f"the code runs as written (raw)"
         )
     return True
 
@@ -266,11 +261,12 @@ def _validate_processes(
             script = extension.get("script")
             if script is None:
                 continue  # an x-labcode with no script; nothing further to check
-            if not _validate_script(script, label, errors, warnings):
+            if not _validate_script(script, label, errors):
                 continue
             modes_with_script.append(mode.get("id"))
             if script_flavor(script) == FLAVOR_SILA2:
                 _check_mode_connection(mode, label, devices, errors)
+                _check_reserved_locals(wf_procs.get(name), label, errors)
 
         # (1)/(2) exclusivity.
         if wf_has_script and modes_with_script:
@@ -283,6 +279,28 @@ def _validate_processes(
             warnings.append(
                 f"process {name!r} has no script (workflow or x-labcode); its operations "
                 f"will run as a typed-default no-op"
+            )
+
+
+def _check_reserved_locals(wf_process: Any, label: str, errors: list) -> None:
+    """A `sila2` script finds its clients under reserved names, and a script's inputs are
+    bound as its function's parameters -- so an input port of the same name would be
+    silently overwritten by a client. Reject that, as `_id` is rejected (§4.1).
+
+    Best effort: it needs the workflow's declaration of the process. A caller that passes
+    an unexpanded document (``$import`` still unresolved) may not have it, in which case
+    there is nothing to check here."""
+    if not isinstance(wf_process, dict):
+        return
+    inputs = wf_process.get("inputs")
+    if not isinstance(inputs, dict):
+        return
+    for name in RESERVED_LOCALS:
+        if name in inputs:
+            errors.append(
+                f"{label}: the process declares an input port {name!r}, which a "
+                f"'sila2' script's client would overwrite; labcode reserves "
+                f"{', '.join(repr(local) for local in RESERVED_LOCALS)} in such a script"
             )
 
 
@@ -342,7 +360,7 @@ def _validate_transports(
         script = extension.get("script")
         if script is None:
             continue
-        if not _validate_script(script, label, errors, warnings):
+        if not _validate_script(script, label, errors):
             continue
         if script_flavor(script) == FLAVOR_SILA2:
             _check_transport_connection(transport, label, transporters, errors)
