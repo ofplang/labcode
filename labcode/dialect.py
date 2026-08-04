@@ -10,12 +10,12 @@ front door, over the workflow (needed for the (1)/(2) exclusivity rule) and the 
 
 Three kinds of check:
 
-* **position** -- an ``x-labcode`` outside the four places this version reads (a process
-  mode, a transport route, a device, a transporter) is an error. Nothing else would ever
-  read it, and `ofplang-schedule` will not complain either, so a misplaced block would
-  otherwise be silent for good. (An ``x-labcode`` in the *workflow* is deliberately not
-  checked: that document is portable v0, read by other implementations, and policing
-  other people's extension keys there is not labcode's business.)
+* **position** -- an ``x-labcode`` outside the places this version reads (the environment
+  root, a process mode, a transport route, a device, a transporter) is an error. Nothing
+  else would ever read it, and `ofplang-schedule` will not complain either, so a misplaced
+  block would otherwise be silent for good. (An ``x-labcode`` in the *workflow* is
+  deliberately not checked: that document is portable v0, read by other implementations,
+  and policing other people's extension keys there is not labcode's business.)
 * **shape** -- the keys are closed: an unknown key is an error rather than something
   ignored, so a misspelled ``flavour:`` or a ``probe:`` this version cannot honour is
   reported instead of quietly doing nothing.
@@ -26,6 +26,9 @@ Three kinds of check:
     route a transporter) that declares an ``x-labcode.connection``.
   - **a `sila2` script's client names are reserved**: the process must not declare an input
     port that one of them would overwrite.
+  - **a probe needs an address**: a machine whose effective ``x-labcode.probe`` is enabled
+    must declare an ``x-labcode.connection``. A policy that nothing enables is a *warning*
+    (it does nothing, which is unlikely to be what its author meant).
   - **typed-default reachability** (a *warning*, not an error): a process with neither a
     workflow script nor any mode's ``x-labcode.script`` will run as a typed-default no-op
     (a device not yet scripted). Allowed -- convenient while mocking -- but surfaced.
@@ -42,6 +45,7 @@ from labcode.extension import (
     FLAVORS,
     NODE_KEYS,
     RESERVED_LOCALS,
+    ROOT_KEYS,
     SCRIPT_KEYS,
     SCRIPT_SITE_KEYS,
     TLS_INSECURE_NOT_DECLARED,
@@ -49,7 +53,9 @@ from labcode.extension import (
     find_extensions,
     format_path,
     is_supported_position,
+    merge_probe,
     parse_connection,
+    parse_probe,
     script_flavor,
     unknown_key_messages,
 )
@@ -94,10 +100,22 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
         )
 
     _validate_positions(environment, errors)
+    root_probe = _validate_root(environment, errors)
     devices = _node_index(environment, "devices")
     transporters = _node_index(environment, "transporters")
-    _validate_nodes(environment, "devices", "device", errors)
-    _validate_nodes(environment, "transporters", "transporter", errors)
+    probed = _validate_nodes(
+        environment, "devices", "device", root_probe, errors, warnings
+    )
+    probed |= _validate_nodes(
+        environment, "transporters", "transporter", root_probe, errors, warnings
+    )
+    if root_probe and not probed and root_probe.get("enabled") is not False:
+        # A document-wide policy that reaches nothing: the run will probe no machine at
+        # all, which is not what writing one says. An explicit `enabled: false` says it.
+        warnings.append(
+            "environment root: x-labcode.probe is declared but no machine is probed; it "
+            "has no effect (add `enabled: true`, and a connection to the machines to check)"
+        )
     _validate_processes(workflow, environment, devices, errors, warnings)
     _validate_transports(environment, transporters, errors, warnings)
 
@@ -108,26 +126,39 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
 
 
 _BELONGS = (
-    "it belongs on a process mode (processes.<p>.modes[]), a transport route "
-    "(transports[]), a device (devices[]) or a transporter (transporters[])"
+    "it belongs at the environment root (probing defaults), on a process mode "
+    "(processes.<p>.modes[]), a transport route (transports[]), a device (devices[]) or a "
+    "transporter (transporters[])"
 )
 
 
 def _validate_positions(environment: dict, errors: list) -> None:
-    """Reject an ``x-labcode`` where nothing reads one. The environment root is called out
-    by name because it is the natural guess for a document-wide default block -- which is
-    exactly what a later version plans to put there."""
+    """Reject an ``x-labcode`` where nothing reads one."""
     for path, _value in find_extensions(environment):
-        if is_supported_position(path):
-            continue
-        if path:
+        if not is_supported_position(path):
             errors.append(f"x-labcode at {format_path(path)} is not supported; {_BELONGS}")
-        else:
-            errors.append(
-                "x-labcode at the environment root is not supported in this version "
-                "(a document-wide default block for availability probing is planned); "
-                f"{_BELONGS}"
-            )
+
+
+def _validate_root(environment: dict, errors: list) -> dict:
+    """Shape-check the environment root's ``x-labcode`` -- document-wide probing defaults,
+    and nothing else (an address belongs to the machine that has it). Returns the probe
+    fields it declares, for the effective policies below."""
+    extension = environment.get(EXTENSION_KEY)
+    if extension is None:
+        return {}
+    if not isinstance(extension, dict):
+        errors.append("environment root: x-labcode must be a mapping")
+        return {}
+    errors.extend(
+        f"environment root: {message}"
+        for message in unknown_key_messages(extension, "x-labcode", ROOT_KEYS)
+    )
+    raw = extension.get("probe")
+    if raw is None:
+        return {}
+    declared, messages = parse_probe(raw)
+    errors.extend(f"environment root: x-labcode.{message}" for message in messages)
+    return declared
 
 
 # -- devices and transporters ---------------------------------------------------
@@ -151,44 +182,76 @@ def _node_index(environment: dict, key: str) -> _NodeIndex:
     return _NodeIndex(frozenset(declared), frozenset(with_connection))
 
 
-def _validate_nodes(environment: dict, key: str, kind: str, errors: list) -> None:
-    """Shape-check the ``x-labcode`` on each ``devices[]`` / ``transporters[]`` entry: a
-    `connection` and nothing else, and -- while TLS has nowhere to keep its credentials --
-    an insecure one."""
+def _validate_nodes(
+    environment: dict, key: str, kind: str, root_probe: dict, errors: list, warnings: list
+) -> bool:
+    """Shape-check the ``x-labcode`` on each ``devices[]`` / ``transporters[]`` entry: how
+    to reach the machine (`connection`) and whether to check that it answers (`probe`).
+
+    Returns whether any machine here ends up probed, which the caller uses to tell a
+    policy that does nothing from one that does."""
     entries = environment.get(key)
     if not isinstance(entries, list):
-        return
+        return False
     connected: set[str] = set()
+    any_probed = False
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             continue
         extension = entry.get(EXTENSION_KEY)
-        if extension is None:
-            continue
         identifier = entry.get("id")
         label = f"{kind} {identifier!r}" if isinstance(identifier, str) else f"{kind} #{index}"
-        if not isinstance(extension, dict):
+        if extension is not None and not isinstance(extension, dict):
             errors.append(f"{label}: x-labcode must be a mapping")
             continue
+        extension = extension or {}
         errors.extend(
             f"{label}: {message}"
             for message in unknown_key_messages(extension, "x-labcode", NODE_KEYS)
         )
+
+        # The address, if it has one. Note that the probe rule below only asks whether a
+        # `connection` was declared: its own faults are reported here, once.
         raw = extension.get("connection")
-        if raw is None:
-            continue
-        if isinstance(identifier, str):
-            if identifier in connected:
+        if raw is not None:
+            if isinstance(identifier, str):
+                if identifier in connected:
+                    errors.append(
+                        f"{label}: {key}[] declares this id more than once with an "
+                        f"x-labcode.connection, so which one to reach is ambiguous"
+                    )
+                connected.add(identifier)
+            connection, messages = parse_connection(raw)
+            errors.extend(f"{label}: x-labcode.{message}" for message in messages)
+            if connection is not None and not connection.insecure:
+                reason = TLS_UNSUPPORTED if "insecure" in raw else TLS_INSECURE_NOT_DECLARED
+                errors.append(f"{label}: x-labcode.{reason}")
+
+        # The probing policy: the root's defaults under this machine's own.
+        own = extension.get("probe")
+        declared: dict = {}
+        if own is not None:
+            declared, messages = parse_probe(own)
+            errors.extend(f"{label}: x-labcode.{message}" for message in messages)
+        policy = merge_probe(root_probe, declared)
+        if policy.enabled:
+            if raw is None:
                 errors.append(
-                    f"{label}: {key}[] declares this id more than once with an "
-                    f"x-labcode.connection, so which one to reach is ambiguous"
+                    f"{label}: x-labcode.probe is enabled but the machine declares no "
+                    f"x-labcode.connection, so there is no address to probe"
                 )
-            connected.add(identifier)
-        connection, messages = parse_connection(raw)
-        errors.extend(f"{label}: x-labcode.{message}" for message in messages)
-        if connection is not None and not connection.insecure:
-            reason = TLS_UNSUPPORTED if "insecure" in raw else TLS_INSECURE_NOT_DECLARED
-            errors.append(f"{label}: x-labcode.{reason}")
+            else:
+                any_probed = True
+        elif declared and declared.get("enabled") is not False:
+            # A policy written on the machine that nothing turns on: allowed (the default
+            # is off, deliberately) but surfaced, since it reads as a request to monitor.
+            # An explicit `enabled: false` is the opposite -- excluding this machine from a
+            # document-wide sweep is exactly how that is meant to be written.
+            warnings.append(
+                f"{label}: x-labcode.probe is declared but not enabled; it has no effect "
+                f"(add `enabled: true` here or at the environment root)"
+            )
+    return any_probed
 
 
 # -- scripts --------------------------------------------------------------------

@@ -128,14 +128,21 @@ def test_same_spot_scriptless_transport_not_warned():
 # -- where an x-labcode may appear ----------------------------------------------
 
 
-def test_x_labcode_at_the_environment_root_is_rejected():
-    # The natural guess for a document-wide default block -- and read by nobody, since
-    # ofplang-schedule tolerates an x- key at every position without interpreting it.
-    env = _env({"id": "v0"})
+def test_x_labcode_at_the_environment_root_holds_probing_defaults():
+    env = _device_env(_device(**{"x-labcode": {"connection": CONNECTION}}))
     env["x-labcode"] = {"probe": {"enabled": True}}
     result = validate_dialect({}, env)
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_a_connection_at_the_environment_root_is_rejected():
+    # An address belongs to the machine that has it; only defaults live at the root.
+    env = _device_env(_device())
+    env["x-labcode"] = {"connection": CONNECTION}
+    result = validate_dialect({}, env)
     assert not result.ok
-    assert any("root" in e and "not supported" in e for e in result.errors)
+    assert any("unknown key 'connection'" in e for e in result.errors)
 
 
 def test_x_labcode_on_a_process_is_rejected():
@@ -162,11 +169,11 @@ def test_unknown_key_in_x_labcode_is_rejected():
     assert any("unknown key 'scrpit'" in e for e in result.errors)
 
 
-def test_probe_is_reported_as_not_supported_yet():
-    # Silently ignoring a monitoring policy is the worst way to learn it does nothing.
+def test_probe_is_not_a_key_on_a_process_mode():
+    # Probing is about a machine, not about one of the things it does.
     result = validate_dialect({}, _env({"id": "v0", "x-labcode": {"probe": {"enabled": True}}}))
     assert not result.ok
-    assert any("probe is not supported" in e for e in result.errors)
+    assert any("unknown key 'probe'" in e for e in result.errors)
 
 
 def test_unknown_key_in_script_is_rejected():
@@ -303,6 +310,93 @@ def test_two_devices_of_the_same_id_with_a_connection_are_ambiguous():
     )
     assert not result.ok
     assert any("more than once" in e for e in result.errors)
+
+
+# -- probing policies ------------------------------------------------------------
+
+
+def _probed_device(**probe) -> dict:
+    return _device(**{"x-labcode": {"connection": CONNECTION, "probe": probe}})
+
+
+def test_a_probed_device_passes():
+    result = validate_dialect({}, _device_env(_probed_device(enabled=True, timeout=2, interval=60)))
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_interval_may_be_once_or_zero():
+    for interval in ("once", 0):
+        result = validate_dialect({}, _device_env(_probed_device(enabled=True, interval=interval)))
+        assert result.ok, (interval, result.errors)
+
+
+def test_probe_unknown_key_is_rejected():
+    result = validate_dialect({}, _device_env(_probed_device(enabled=True, evrey=1)))
+    assert not result.ok
+    assert any("unknown key 'evrey'" in e for e in result.errors)
+
+
+def test_probe_field_types_are_checked():
+    for probe, expected in (
+        ({"enabled": "yes"}, "probe.enabled"),
+        ({"enabled": True, "timeout": 0}, "probe.timeout"),
+        ({"enabled": True, "timeout": True}, "probe.timeout"),
+        ({"enabled": True, "interval": -1}, "probe.interval"),
+        ({"enabled": True, "interval": "hourly"}, "probe.interval"),
+    ):
+        result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+            "connection": CONNECTION, "probe": probe}})))
+        assert not result.ok, probe
+        assert any(expected in e for e in result.errors), (probe, result.errors)
+
+
+def test_a_probed_machine_needs_an_address():
+    # Enabled by its own policy, but there is nowhere to probe.
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
+        "probe": {"enabled": True}}})))
+    assert not result.ok
+    assert any("no x-labcode.connection" in e and "probe" in e for e in result.errors)
+
+
+def test_the_root_enabling_probing_also_needs_addresses():
+    # The chosen strictness: `enabled: true` at the root reaches every machine, so a
+    # holding device with no connection has to be excluded on purpose.
+    reader = _device("reader", **{"x-labcode": {"connection": CONNECTION}})
+    env = _device_env(reader, _device("rack"))
+    env["x-labcode"] = {"probe": {"enabled": True}}
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("device 'rack'" in e for e in result.errors)
+
+    env["devices"][1]["x-labcode"] = {"probe": {"enabled": False}}
+    excluded = validate_dialect({}, env)
+    assert excluded.ok, excluded.errors
+    assert not excluded.warnings  # an explicit exclusion is not a dormant policy
+
+
+def test_a_transporter_is_probed_the_same_way():
+    env = {"processes": {}, "transporters": [{"id": "arm", "x-labcode": {
+        "probe": {"enabled": True}}}]}
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("transporter 'arm'" in e and "probe" in e for e in result.errors)
+
+
+def test_a_probe_policy_that_nothing_enables_is_warned():
+    # It does nothing -- which is what `enabled` defaulting to false means -- but writing
+    # a policy reads as asking for one, so say it out loud.
+    result = validate_dialect({}, _device_env(_probed_device(interval=60)))
+    assert result.ok, result.errors
+    assert any("not enabled" in w for w in result.warnings)
+
+
+def test_a_root_policy_that_reaches_nothing_is_warned():
+    env = _device_env(_device())  # no connection anywhere, so nothing can be probed
+    env["x-labcode"] = {"probe": {"interval": 60}}
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+    assert any("no machine is probed" in w for w in result.warnings)
 
 
 def test_a_transporter_connection_passes():

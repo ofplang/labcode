@@ -7,6 +7,10 @@ dialect front door: after the shared workflow front door (`ofplang.run.front_doo
 it validates the env ``x-labcode`` extension (P5, `labcode.dialect`) and warns about ops
 that will run as a typed-default no-op.
 
+It also owns what the operator hears about **availability**: the environment may ask for
+its machines to be checked (``x-labcode.probe``), and this prints each machine whose
+reachability changes, so a run that re-routes -- or stops because it cannot -- says why.
+
 This module is the ``run`` entry of the ``lc`` dispatcher (see `labcode.cli`); it owns
 argument parsing, I/O, and exit-code mapping, delegating the actual run to the shared
 `ofplang.run.run_workflow` front door with the labcode `backend_factory`.
@@ -66,6 +70,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-validate", action="store_true",
         help="skip the ofplang-validate front-door check of the workflow",
+    )
+    p.add_argument(
+        "--no-probe", action="store_true",
+        help="ignore the environment's x-labcode.probe policies and treat every machine as"
+             " reachable (the document is still validated)",
     )
     return p
 
@@ -147,6 +156,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     # exceeding its estimate) does not dispatch a successor onto a still-busy resource.
     margin = args.margin if args.margin is not None else args.poll_interval
 
+    # Availability: report each machine whose reachability changes as the run sees it, and
+    # remember the ones that went down. A run that loses a machine it needs fails with the
+    # scheduler's "no route" message, which does not mention the machine -- so the reason
+    # is added to the failure below.
+    unreachable: set[str] = set()
+
+    def report_availability(machine: str, reachable: bool) -> None:
+        if reachable:
+            unreachable.discard(machine)
+            print(f"lc run: {machine!r} is reachable again", file=sys.stderr)
+        else:
+            unreachable.add(machine)
+            print(f"lc run: {machine!r} is unreachable (probe)", file=sys.stderr)
+
+    def probe_note() -> str:
+        return (
+            f" (unreachable at the probe: {', '.join(sorted(unreachable))})"
+            if unreachable
+            else ""
+        )
+
     try:
         # Validation already ran at the front doors above, so run trusting. `run_labcode`
         # owns the labcode Object-identity setup (rewrite the workflow's Object types to
@@ -161,12 +191,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_interval=args.poll_interval,
             seconds_per_tick=args.seconds_per_tick,
             speed=args.speed,
+            probe=not args.no_probe,
+            on_availability_change=report_availability,
         )
     except (yaml.YAMLError, ContractSyntaxError) as exc:
         print(f"lc run: invalid input: {exc}", file=sys.stderr)
         return EXIT_USAGE
     except (SimulatorError, RunnerError) as exc:
-        print(f"lc run: execution failed: {exc}", file=sys.stderr)
+        print(f"lc run: execution failed: {exc}{probe_note()}", file=sys.stderr)
         return EXIT_FAILED
 
     if args.boundary_out:
@@ -178,9 +210,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if result.failed:
         failure = result.failure
         if failure is not None:
-            print(f"lc run: execution failed: {failure.kind}: {failure.detail}", file=sys.stderr)
+            print(
+                f"lc run: execution failed: {failure.kind}: {failure.detail}{probe_note()}",
+                file=sys.stderr,
+            )
         else:
-            print("lc run: execution failed: an activity failed", file=sys.stderr)
+            print(f"lc run: execution failed: an activity failed{probe_note()}", file=sys.stderr)
         return EXIT_FAILED
     return EXIT_OK
 

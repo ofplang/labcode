@@ -15,7 +15,7 @@ conformance validator, run at the `lc run` front door.
 The extension appears in four places, each answering a different question: on a **process
 mode** and on a **transport route** it says *what to run* (a `script`, §1.1–§1.3); on a
 **device** and on a **transporter** it says *how to reach the machine* (a `connection`,
-§1.4), which is what lets a script be the commands alone (§1.5). Nowhere else — see §1.6.
+§1.4), which is what lets a script be the commands alone (§1.6). Nowhere else — see §1.7.
 
 An environment process mode (§5) may carry an `x-labcode` mapping holding a `script`: the
 Python that carries out that `(process, mode)`.
@@ -50,11 +50,12 @@ still validates and schedules as plain v0. Only labcode interprets it.
     written by its author — the general escape hatch, and what a script that connects for
     itself (or speaks something other than SiLA2) uses.
 
-**Unknown keys are an error**, both in `x-labcode` and in `script`. A key this version
-does not know is either a typo or a feature it does not have; either way, ignoring it
-would mean a document that says one thing and a run that does another (a misspelled
-`flavour:` running unwrapped, a `probe:` monitoring nothing). This applies only inside
-`x-labcode` — the workflow's own `script` (v0 §22) belongs to `ofplang-validate`.
+**Unknown keys are an error** — in `x-labcode` at every position, and in the mappings it
+holds. A key this version does not know is either a typo or a feature it does not have;
+either way, ignoring it would mean a document that says one thing and a run that does
+another (a misspelled `flavour:` running unwrapped, a `probe:` on a mode monitoring
+nothing). This applies only inside `x-labcode` — the workflow's own `script` (v0 §22)
+belongs to `ofplang-validate`.
 
 ### 1.2 Calling convention (process)
 
@@ -118,9 +119,10 @@ bookkeeping only, with no device command (a warned no-op for a real move, from !
 
 ### 1.4 `x-labcode` on a device or a transporter
 
-An environment `devices[]` or `transporters[]` entry may carry an `x-labcode` whose only
-key is `connection`: **where that machine is**, written once per physical machine rather
-than repeated in every script that drives it.
+An environment `devices[]` or `transporters[]` entry may carry an `x-labcode` with two
+keys: `connection` — **where that machine is**, written once per physical machine rather
+than repeated in every script that drives it — and `probe` (§1.5) — whether to check that
+it still answers.
 
 ```yaml
 devices:
@@ -161,7 +163,84 @@ a script uses it.
 Declaring a `connection` on a device no script connects to is allowed — it is how an
 environment is prepared before the scripts that use it are written.
 
-### 1.5 Calling convention (`flavor: sila2`)
+### 1.5 Availability — `probe`
+
+A machine that stops answering should not keep receiving work. A `probe` policy asks labcode
+to check the machines it knows how to reach, and to tell the scheduler about the ones it
+cannot: their process modes, and the transports they carry or touch, are dropped from the
+environment the scheduler sees, so the run **routes around them**.
+
+`probe` may be written on a device or a transporter, and at the **environment root** as a
+document-wide default. The root's fields sit under a machine's own, **field by field**, so
+a machine can change one thing without restating the rest.
+
+| field | default | meaning |
+|---|---|---|
+| `enabled` | `false` | whether this machine is probed at all |
+| `timeout` | `5` | how long one check may take, in **real seconds** |
+| `interval` | `once` | `once` (check at the start of the run and keep that answer), a number of **real seconds** to re-check on, or `0` to re-check on every replan |
+
+`timeout` and `interval` are real seconds — probing is work done against the real world, so
+it has nothing to do with the environment's time unit or the run's wall-clock pacing.
+
+**Writing a policy does not enable it.** `enabled` defaults to false wherever it is not
+said, so adding an `interval` to an environment cannot start probing something that was not
+being probed before; an environment with no `probe` at all behaves exactly as it did before
+this version. A policy that nothing enables is a **warning** — it does nothing, which is
+unlikely to be what its author meant.
+
+**A probed machine needs an address.** A machine whose effective policy is enabled must
+declare a `connection` — otherwise there is nothing to probe, and that is an error. This
+matters when enabling probing document-wide, because the root reaches *every* machine: a
+plain holding device with no connection then has to be excluded on purpose.
+
+```yaml
+# Per machine: enable only the ones with an address (nothing to write for a holding device)
+devices:
+  - id: plateloc
+    spots: [stage]
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
+      probe: { enabled: true, interval: 60 }
+  - { id: station, spots: [slot1] }
+
+# Document-wide: enable once, and exclude what cannot be reached
+x-labcode:
+  probe: { enabled: true, interval: 60 }
+devices:
+  - id: plateloc
+    spots: [stage]
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
+  - id: station
+    spots: [slot1]
+    x-labcode:
+      probe: { enabled: false }
+```
+
+**What a probe is.** Opening a TCP connection to the declared address, and nothing more. It
+needs no client library, and it establishes **reachability, not readiness**: a machine whose
+port is open but whose software is wedged reads as up here, and that case surfaces where it
+belongs — as the operation that tried to command it failing.
+
+**What it does to a run.**
+
+- Only **new scheduling** is affected. An operation already running on a machine that has
+  just gone down is not touched.
+- **If there is no other way, the run fails.** A workflow that needs a machine nothing can
+  replace stops with the scheduler's "no route" error rather than dispatching onto it.
+- **Recovery is automatic** — for a policy that re-checks. With `once` (the default) the
+  first answer stands for the whole run; with an `interval`, a machine that comes back
+  returns to the plan.
+- **A check costs run-loop time.** Probing happens in the process driving the run, one
+  machine at a time, on the replan that asks for it; the pause is bounded by (unreachable
+  machines × their `timeout`). A slow round shows up as the virtual clock advancing further
+  on that tick, not as an error.
+- `lc run --no-probe` ignores the policies and treats every machine as reachable (the
+  document is still validated, so an environment that is wrong about probing stays wrong).
+  Each machine whose reachability changes is reported on stderr.
+
+### 1.6 Calling convention (`flavor: sila2`)
 
 A `sila2` script is the **commands alone**: labcode opens a client to each of the
 operation's machines, runs the code with them in scope, and closes them afterwards. On top
@@ -196,13 +275,14 @@ x-labcode:
 - A `sila2` script is only interpreted where the dialect is — in an environment
   `x-labcode`. A workflow's own `script` (v0 §22) has no `flavor`.
 
-### 1.6 Where an `x-labcode` may appear
+### 1.7 Where an `x-labcode` may appear
 
-The four positions of §1 are the only ones: `processes.<p>.modes[]`, `transports[]`,
-`devices[]` and `transporters[]`. An `x-labcode` anywhere else in the environment — at the
-document root, on a process, beside `time` — is an **error**. Nothing would read it, and
-`ofplang-schedule` tolerates an `x-` key at *every* position without interpreting it, so a
-misplaced block would otherwise stay silent forever.
+The positions of §1 are the only ones: the environment **root** (`probe` defaults only),
+`processes.<p>.modes[]`, `transports[]`, `devices[]` and `transporters[]`. An `x-labcode`
+anywhere else in the environment — on a process, beside `time` — is an **error**, as is a
+key at a position that does not define it (a `connection` at the root, a `probe` on a mode).
+Nothing would read it, and `ofplang-schedule` tolerates an `x-` key at *every* position
+without interpreting it, so a misplaced block would otherwise stay silent forever.
 
 This rule covers the environment only. An `x-labcode` in the **workflow** is not reported:
 that document is portable v0, read by other implementations, and what extension keys it
@@ -292,8 +372,9 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 ## 5. Not yet in this version (roadmap)
 
-- **Availability probing** — a `probe` block (enable / timeout / interval) on a device,
-  with a document-wide default at the environment root, driving `down_devices()` so the
-  scheduler routes around a machine that cannot be reached. Writing `probe` today is an
-  error rather than something ignored (§1.1).
+- **A deeper probe** — asking a machine something (a SiLA2 property read) rather than only
+  opening a connection to it, so "answering" can be checked and not just "listening"
+  (§1.5). It would be an opt-in depth, since it costs a real exchange per check.
+- **Probing in parallel** — checking machines concurrently, so a lab with many unreachable
+  machines does not pay for them one timeout at a time (§1.5).
 - **TLS** — the fields a secure connection needs, lifting the restriction in §1.4.

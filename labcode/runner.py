@@ -25,17 +25,20 @@ from ofplang.run.runner import RollingRunner, RunnerError, load_document
 from labcode.backend import DEFAULT_SECONDS_PER_TICK, labcode_backend_factory
 from labcode.idgen import IdGenerator, SeededUuid4Generator
 from labcode.objectid import inject_boundary_ids, inject_id_field, reserved_collisions
+from labcode.probe import ChangeReporter, Prober
 
 
 class LabcodeRunner(RollingRunner):
     """A `RollingRunner` that injects and mints labcode Object identities (`_id`).
 
-    `workflow` is a path or an already-loaded document; `environment` is a path or dict.
-    Object types are rewritten to declare ``_id``, the boundary's Object inputs are minted,
-    and the labcode backend is wired with a shared `IdGenerator` (default: reproducible,
-    seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` / `sleep` configure the
-    wall-clock backend; any other keyword is forwarded to `RollingRunner` (e.g.
-    `random_seed`, `poll_interval`, `running_task_margin`, `observation_out`)."""
+    `workflow` is a path or an already-loaded document; `environment` is a path (the
+    runner reads it itself). Object types are rewritten to declare ``_id``, the boundary's
+    Object inputs are minted, and the labcode backend is wired with a shared `IdGenerator`
+    (default: reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
+    `sleep` configure the wall-clock backend and `probe` / `prober` /
+    `on_availability_change` its availability probing (`labcode.probe`); any other keyword
+    is forwarded to `RollingRunner` (e.g. `random_seed`, `poll_interval`,
+    `running_task_margin`, `down_scope`, `observation_out`)."""
 
     def __init__(
         self,
@@ -49,6 +52,9 @@ class LabcodeRunner(RollingRunner):
         spawn: Callable[[dict], object] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        probe: bool = True,
+        prober: Prober | None = None,
+        on_availability_change: ChangeReporter | None = None,
         **rolling_kwargs,
     ) -> None:
         doc = workflow if isinstance(workflow, dict) else load_document(workflow)
@@ -70,6 +76,9 @@ class LabcodeRunner(RollingRunner):
             spawn=spawn,
             monotonic=monotonic,
             sleep=sleep,
+            probe=probe,
+            prober=prober,
+            on_availability_change=on_availability_change,
         )
         super().__init__(
             rewritten, environment, boundary, backend_factory=factory, **rolling_kwargs

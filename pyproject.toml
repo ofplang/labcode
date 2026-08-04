@@ -25,16 +25,16 @@ classifiers = [
     "Typing :: Typed",
 ]
 # labcode bundles the toolchain by depending on the ofplang sibling packages. `lc run`
-# is the labcode dialect backend, so the floors reflect what it needs: run's in-memory
-# workflow document support -- `LabcodeRunner` runs the `_id`-rewritten workflow without a
-# temp file -- and the `node` provenance passed to the device model (>=0.1.9); schedule's
-# matching in-memory workflow acceptance (>=0.1.3); validate's `description` metadata
-# support so a described workflow passes the front door (spec 2.7, >=0.1.2). `validate`
-# and `schedule` subcommands still forward unchanged.
+# is the labcode dialect backend, so the floors reflect what it needs: run must take a
+# *transporter* out of the plan when `down_devices` reports one, which is what availability
+# probing depends on for the machines that carry material (>=0.1.11); schedule's in-memory
+# workflow acceptance (>=0.1.3); validate's `$import` expansion API so the front door hands
+# the expanded document on (>=0.1.3). `validate` and `schedule` subcommands still forward
+# unchanged.
 dependencies = [
     "ofplang-validate>=0.1.3",
     "ofplang-schedule>=0.1.3",
-    "ofplang-run>=0.1.10",
+    "ofplang-run>=0.1.11",
 ]
 
 [project.urls]

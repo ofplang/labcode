@@ -135,7 +135,26 @@ x-labcode:
 What the flavor supplies is connections, nothing more: waiting for an *observable* command to
 finish stays in the script (the standard `sila2` pattern), and the spot names still have to be
 the ones the lab declares — a name it does not know fails the move at the moment of use. See
-[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4–§1.5.
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4 and §1.6.
+
+### If a machine stops answering
+
+Neither environment here asks for it, but labcode can **check that a machine is reachable**
+and schedule around the ones that are not — see
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.5. Adding this to a device (or a
+transporter) that declares a `connection`:
+
+```yaml
+    x-labcode:
+      connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
+      probe: { enabled: true, interval: 60 }
+```
+
+…makes `lc run` report the machine when its reachability changes and plan without it while
+it is down. These two examples leave it out on purpose: each has exactly one sealer and one
+arm, so there is nothing to route around, and what a stopped lab should produce here is the
+instrument command failing where it was issued. `lc run --no-probe` turns probing off for a
+run without editing the environment.
 
 ### Prerequisites
 

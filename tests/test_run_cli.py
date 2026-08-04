@@ -210,6 +210,45 @@ def test_e2e_partial_read_carries_the_plate(tmp_path):
     assert "tube" in runner.outputs  # the Tube is carried back out
 
 
+def _unreachable_env(tmp_path) -> str:
+    """`reroute_device.env.yaml` with both destinations pointed at a closed port.
+
+    Port 9 (discard) is not served on a development machine, so this is what an operator
+    sees when the lab is not running: the probe reaches neither station, and `target` --
+    which can only run on one of them -- has nowhere left to go."""
+    source = (FIX / "reroute_device.env.yaml").read_text(encoding="utf-8")
+    env = tmp_path / "unreachable.env.yaml"
+    env.write_text(
+        source.replace("port: 50101", "port: 9").replace("port: 50102", "port: 9"),
+        encoding="utf-8",
+    )
+    return str(env)
+
+
+def test_cli_reports_an_unreachable_machine_and_says_so_when_the_run_stops(tmp_path, capsys):
+    # `lc run` is where an operator hears about availability: each machine is named when its
+    # reachability changes, and the failure repeats which ones were unreachable -- the
+    # scheduler's "no route" message alone would not say why there is no route.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    code = run_cli.main([TWF, "--env", _unreachable_env(tmp_path), "--seconds-per-tick", "0.001"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "'station_1' is unreachable (probe)" in err
+    assert "'station_2' is unreachable (probe)" in err
+    assert "unreachable at the probe: station_1, station_2" in err
+
+
+def test_cli_no_probe_ignores_the_policy(tmp_path, capsys):
+    # The same environment runs when probing is turned off: every machine is assumed
+    # reachable, which is what the flag is for when the lab is elsewhere.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    code = run_cli.main(
+        [TWF, "--env", _unreachable_env(tmp_path), "--seconds-per-tick", "0.001", "--no-probe"]
+    )
+    assert code == 0
+    assert "unreachable" not in capsys.readouterr().err
+
+
 def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
     # A process with no script warns (typed-default no-op) but still runs. Stub the run so
     # the test does not spend real wall-clock time.

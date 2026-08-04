@@ -49,6 +49,7 @@ from labcode.extension import (
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
 from labcode.objectid import stamp_object_ids
+from labcode.probe import Availability, ChangeReporter, Prober, build_availability
 from labcode.sila2 import failing_code, targets_of, wrap
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
@@ -187,10 +188,15 @@ class LabcodeBackend(SubprocessBackend):
         transport_resolver: Callable | None = None,
         id_generator: IdGenerator | None = None,
         spawn=None,
+        availability: Availability | None = None,
         **kwargs,
     ):
         super().__init__(environment, spawn=spawn or _labcode_child_spawn, **kwargs)
         self._transport_resolver = transport_resolver or (lambda *args: None)
+        # Which machines the environment says to check, and what the last check found
+        # (`labcode.probe`); None when it asks for no probing, so `down_devices` behaves
+        # exactly as the base backend does.
+        self._availability = availability
         # Mints the reserved `_id` on created Objects (see `labcode.objectid`). Shared
         # with the run boundary's minting so a run's ids are consistent; default is the
         # reproducible seeded generator.
@@ -229,6 +235,19 @@ class LabcodeBackend(SubprocessBackend):
             {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema
         )
 
+    def down_devices(self) -> list[str]:
+        """The machines the runner should schedule around: whatever the base backend holds
+        down (an injected fault) **plus** whatever an availability probe cannot reach.
+
+        The runner polls this on every replan, so this is where probing happens -- each
+        machine as often as its policy says, cached in between (`labcode.probe`). Both
+        devices and transporters may appear, which the runner takes out of the environment
+        it schedules against (ofplang-run >= 0.1.11)."""
+        down = set(super().down_devices())
+        if self._availability is not None:
+            down |= self._availability.down()
+        return sorted(down)
+
     def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
         uuid = super().dispatch_transport(
             transporter, from_spot, to_spot, duration=duration, view=view
@@ -251,6 +270,9 @@ def labcode_backend_factory(
     spawn: Callable[[dict], object] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    probe: bool = True,
+    prober: Prober | None = None,
+    on_availability_change: ChangeReporter | None = None,
 ) -> Callable[[dict], SubprocessBackend]:
     """Build a ``backend_factory(environment) -> SubprocessBackend`` for the runner,
     wired with the labcode env-script resolver (`make_code_resolver`).
@@ -260,7 +282,13 @@ def labcode_backend_factory(
     generator; pass a `RealUuid4Generator` for a real run, or share the same instance the
     run boundary mints with). `spawn` overrides how a child is launched (default: a real
     subprocess); `monotonic` / `sleep` are injectable so a test can drive the pacing on a
-    fake clock."""
+    fake clock.
+
+    Availability: the environment's ``x-labcode.probe`` policies are honoured unless
+    `probe` is false (then nothing is checked and every machine counts as up -- what
+    ``lc run --no-probe`` does). `prober` decides how a machine is checked (default: a TCP
+    connection), and `on_availability_change(id, reachable)` is told when one changes, so a
+    caller can report it."""
 
     def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
@@ -272,6 +300,13 @@ def labcode_backend_factory(
             "monotonic": monotonic,
             "sleep": sleep,
         }
+        if probe:
+            kwargs["availability"] = build_availability(
+                environment,
+                prober=prober,
+                monotonic=monotonic,
+                on_change=on_availability_change,
+            )
         if spawn is not None:
             kwargs["spawn"] = spawn
         return LabcodeBackend(environment, **kwargs)
