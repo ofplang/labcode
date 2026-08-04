@@ -152,10 +152,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if err is not None:
             return err
 
-    # Cadence default: a margin of at least the poll interval so an overrun (a real op
-    # exceeding its estimate) does not dispatch a successor onto a still-busy resource.
-    margin = args.margin if args.margin is not None else args.poll_interval
-
     # Availability: report each machine whose reachability changes as the run sees it, and
     # remember the ones that went down. A run that loses a machine it needs fails with the
     # scheduler's "no route" message, which does not mention the machine -- so the reason
@@ -169,6 +165,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             unreachable.add(machine)
             print(f"lc run: {machine!r} is unreachable (probe)", file=sys.stderr)
+
+    def report_cadence_slip(skipped: int, budget: float, spent: float) -> None:
+        # Said once. The run is not wrong -- it skipped the ticks it could not observe and
+        # the clock still tells real time -- but the cadence being asked for is not the one
+        # being delivered, and only the caller can fix that.
+        print(
+            f"lc run: a poll cycle took {spent:.3g}s but the poll period is {budget:.3g}s, "
+            f"so {skipped} tick(s) went unobserved; the effective period is the cycle's "
+            f"cost. Raise --poll-interval or --seconds-per-tick (or probe less often) if "
+            f"this repeats.",
+            file=sys.stderr,
+        )
 
     def probe_note() -> str:
         return (
@@ -186,13 +194,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             workflow_doc,
             args.env,
             boundary,
-            running_task_margin=margin,
+            # None keeps the runner's default, which is the poll interval: a margin of at
+            # least one tick is what stops an overrunning operation's successor from being
+            # dispatched onto a resource it still holds.
+            running_task_margin=args.margin,
             random_seed=args.seed,
             poll_interval=args.poll_interval,
             seconds_per_tick=args.seconds_per_tick,
             speed=args.speed,
             probe=not args.no_probe,
             on_availability_change=report_availability,
+            on_cadence_slip=report_cadence_slip,
         )
     except (yaml.YAMLError, ContractSyntaxError) as exc:
         print(f"lc run: invalid input: {exc}", file=sys.stderr)

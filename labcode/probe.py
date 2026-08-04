@@ -44,6 +44,12 @@ Prober = Callable[[str, int, float], bool]
 #: Told about each machine whose reachability changed: ``on_change(id, reachable)``.
 ChangeReporter = Callable[[str, bool], None]
 
+#: Told once when a poll cycle outgrew its poll period:
+#: ``on_cadence_slip(skipped_ticks, budget_seconds, spent_seconds)``. It lives here
+#: because probing is the loop's most expensive optional step and so the likeliest cause,
+#: but the cost it reports is the whole cycle's -- see `LabcodeBackend.advance`.
+CadenceReporter = Callable[[int, float, float], None]
+
 
 def tcp_reachable(host: str, port: int, timeout: float) -> bool:
     """Whether a TCP connection to `host:port` opens within `timeout` seconds.

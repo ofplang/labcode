@@ -358,6 +358,69 @@ def test_no_probe_treats_every_machine_as_reachable():
     assert calls == []
 
 
+def test_a_cycle_that_outgrows_its_poll_period_is_reported_once():
+    # The run is not wrong to skip the ticks it could not observe -- but the caller asked
+    # for a poll period it is not getting, and only the caller can fix that (SPEC §3.1).
+    # A millisecond per tick is far below what one replan costs, so every cycle slips.
+    slips: list[tuple[int, float, float]] = []
+    runner = LabcodeRunner(
+        WORKFLOW,
+        DEVICE_ENV,
+        seconds_per_tick=0.001,
+        random_seed=0,
+        probe=False,
+        on_cadence_slip=lambda *args: slips.append(args),
+    )
+    try:
+        runner.run()
+    finally:
+        runner.sim.close()
+
+    assert len(slips) == 1, slips  # said once, not per tick
+    skipped, budget, spent = slips[0]
+    assert skipped >= 1
+    assert spent > budget  # which is what "slip" means
+
+
+def test_no_slip_is_reported_when_the_cycle_fits():
+    # The same run paced so that one cycle fits comfortably: nothing to report.
+    slips: list[tuple] = []
+    runner = LabcodeRunner(
+        WORKFLOW,
+        DEVICE_ENV,
+        seconds_per_tick=0.5,
+        random_seed=0,
+        probe=False,
+        on_cadence_slip=lambda *args: slips.append(args),
+    )
+    try:
+        runner.run()
+    finally:
+        runner.sim.close()
+    assert slips == []
+
+
+def test_the_running_task_margin_follows_the_poll_interval():
+    # A margin of at least one tick is what keeps a still-running operation's successor out
+    # of the current cycle: the scheduler pins a running op to end at max(reported, now +
+    # margin), so with 0 the successor can be planned at `now` and dispatched onto a
+    # resource the predecessor still holds. Real operations overrun, so labcode defaults the
+    # margin to the poll interval rather than to the upstream 0.
+    def margin_of(**kwargs) -> int:
+        runner = LabcodeRunner(
+            WORKFLOW, DEVICE_ENV, seconds_per_tick=0.001, probe=False, **kwargs
+        )
+        try:
+            return runner.margin
+        finally:
+            runner.sim.close()
+
+    assert margin_of() == 1
+    assert margin_of(poll_interval=3) == 3
+    assert margin_of(poll_interval=None) == 1  # event-boundary advance has no interval
+    assert margin_of(running_task_margin=0) == 0  # an explicit choice is honoured
+
+
 def test_the_backend_reports_probe_and_injected_faults_together():
     # `down_devices` is the one answer the runner polls, so both sources appear in it.
     runner = LabcodeRunner(

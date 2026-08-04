@@ -25,7 +25,7 @@ from ofplang.run.runner import RollingRunner, RunnerError, load_document
 from labcode.backend import DEFAULT_SECONDS_PER_TICK, labcode_backend_factory
 from labcode.idgen import IdGenerator, SeededUuid4Generator
 from labcode.objectid import inject_boundary_ids, inject_id_field, reserved_collisions
-from labcode.probe import ChangeReporter, Prober
+from labcode.probe import CadenceReporter, ChangeReporter, Prober
 
 
 class LabcodeRunner(RollingRunner):
@@ -37,8 +37,16 @@ class LabcodeRunner(RollingRunner):
     (default: reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
     `sleep` configure the wall-clock backend and `probe` / `prober` /
     `on_availability_change` its availability probing (`labcode.probe`); any other keyword
-    is forwarded to `RollingRunner` (e.g. `random_seed`, `poll_interval`,
-    `running_task_margin`, `down_scope`, `observation_out`)."""
+    is forwarded to `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`).
+
+    **`running_task_margin` defaults to the poll interval here**, not to the upstream 0.
+    The margin is how far ahead of *now* a still-running operation is assumed to finish
+    (`max(reported end, now + margin)` when the scheduler pins it), so a positive margin is
+    what keeps a successor from being planned at `now` and dispatched onto a resource the
+    predecessor has not released. With 0 a real operation -- which overruns its estimate as
+    a matter of course -- can have its successor dispatched onto a still-busy device, which
+    fails the whole run rather than one operation. Upstream can default to 0 because its
+    home ground is a deterministic simulation with no overruns; labcode's is hardware."""
 
     def __init__(
         self,
@@ -55,6 +63,9 @@ class LabcodeRunner(RollingRunner):
         probe: bool = True,
         prober: Prober | None = None,
         on_availability_change: ChangeReporter | None = None,
+        on_cadence_slip: CadenceReporter | None = None,
+        poll_interval: int | None = 1,
+        running_task_margin: int | None = None,
         **rolling_kwargs,
     ) -> None:
         doc = workflow if isinstance(workflow, dict) else load_document(workflow)
@@ -79,9 +90,22 @@ class LabcodeRunner(RollingRunner):
             probe=probe,
             prober=prober,
             on_availability_change=on_availability_change,
+            on_cadence_slip=on_cadence_slip,
         )
+        # A margin of at least one tick, defaulting to the poll interval (see the class
+        # docstring). An explicit value is honoured as given -- including 0, for a caller
+        # that knows its operations cannot overrun. Event-boundary advance
+        # (`poll_interval=None`) has no interval to follow, so one tick is the default there.
+        if running_task_margin is None:
+            running_task_margin = poll_interval if poll_interval is not None else 1
         super().__init__(
-            rewritten, environment, boundary, backend_factory=factory, **rolling_kwargs
+            rewritten,
+            environment,
+            boundary,
+            backend_factory=factory,
+            poll_interval=poll_interval,
+            running_task_margin=running_task_margin,
+            **rolling_kwargs,
         )
 
 
@@ -90,7 +114,7 @@ def run_labcode(
     environment,
     boundary: dict | None = None,
     *,
-    running_task_margin: int = 0,
+    running_task_margin: int | None = None,
     random_seed: int | None = None,
     poll_interval: int | None = 1,
     seconds_per_tick: float = DEFAULT_SECONDS_PER_TICK,
@@ -104,7 +128,11 @@ def run_labcode(
 
     The caller is expected to have validated the workflow (the `lc run` front doors); this
     runs trusting. The labcode backend holds child processes, so its `close` is called in a
-    `finally` whether the run finished or raised."""
+    `finally` whether the run finished or raised.
+
+    `running_task_margin` defaults to the poll interval, as it does on `LabcodeRunner` (and
+    for the reason given there): a real operation overruns, and a margin of 0 lets its
+    successor be dispatched onto a resource it has not released."""
     runner = LabcodeRunner(
         workflow,
         environment,

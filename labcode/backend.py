@@ -49,7 +49,13 @@ from labcode.extension import (
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
 from labcode.objectid import stamp_object_ids
-from labcode.probe import Availability, ChangeReporter, Prober, build_availability
+from labcode.probe import (
+    Availability,
+    CadenceReporter,
+    ChangeReporter,
+    Prober,
+    build_availability,
+)
 from labcode.sila2 import failing_code, targets_of, wrap
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
@@ -189,6 +195,7 @@ class LabcodeBackend(SubprocessBackend):
         id_generator: IdGenerator | None = None,
         spawn=None,
         availability: Availability | None = None,
+        on_cadence_slip: CadenceReporter | None = None,
         **kwargs,
     ):
         super().__init__(environment, spawn=spawn or _labcode_child_spawn, **kwargs)
@@ -197,6 +204,9 @@ class LabcodeBackend(SubprocessBackend):
         # (`labcode.probe`); None when it asks for no probing, so `down_devices` behaves
         # exactly as the base backend does.
         self._availability = availability
+        # Told once if a poll cycle outgrows its poll period (see `advance`).
+        self._on_cadence_slip = on_cadence_slip
+        self._reported_slip = False
         # Mints the reserved `_id` on created Objects (see `labcode.objectid`). Shared
         # with the run boundary's minting so a run's ids are consistent; default is the
         # reproducible seeded generator.
@@ -234,6 +244,30 @@ class LabcodeBackend(SubprocessBackend):
         return stamp_object_ids(
             {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema
         )
+
+    def advance(self, until: int) -> int:
+        """Pace the wall clock as the base backend does, and say so once if this run
+        cannot keep the cadence it was asked for.
+
+        A poll costs the driving process real time -- replanning, dispatching, and
+        whatever else the loop does before it waits again. While that cost stays under
+        the poll period it is absorbed by the wait and the clock lands exactly on the
+        next tick. When it exceeds the period there is nothing left to wait for: the
+        ticks that could not be observed are skipped and the clock jumps to the one real
+        time has reached (which is the honest answer -- the lab kept running while the
+        loop was busy). What is *not* honest is silence: the operator asked for a poll
+        period and is getting a longer one, so the first slip is reported, with the
+        numbers needed to choose a better `--poll-interval` / `--seconds-per-tick`."""
+        before = self.now
+        reached = super().advance(until)
+        if reached > until and self._on_cadence_slip is not None and not self._reported_slip:
+            self._reported_slip = True
+            self._on_cadence_slip(
+                reached - until,
+                (until - before) * self._seconds_per_tick,
+                (reached - before) * self._seconds_per_tick,
+            )
+        return reached
 
     def down_devices(self) -> list[str]:
         """The machines the runner should schedule around: whatever the base backend holds
@@ -273,6 +307,7 @@ def labcode_backend_factory(
     probe: bool = True,
     prober: Prober | None = None,
     on_availability_change: ChangeReporter | None = None,
+    on_cadence_slip: CadenceReporter | None = None,
 ) -> Callable[[dict], SubprocessBackend]:
     """Build a ``backend_factory(environment) -> SubprocessBackend`` for the runner,
     wired with the labcode env-script resolver (`make_code_resolver`).
@@ -288,7 +323,8 @@ def labcode_backend_factory(
     `probe` is false (then nothing is checked and every machine counts as up -- what
     ``lc run --no-probe`` does). `prober` decides how a machine is checked (default: a TCP
     connection), and `on_availability_change(id, reachable)` is told when one changes, so a
-    caller can report it."""
+    caller can report it. `on_cadence_slip(skipped, budget, spent)` is told once if a poll
+    cycle outgrows its poll period (see `LabcodeBackend.advance`)."""
 
     def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
@@ -299,6 +335,7 @@ def labcode_backend_factory(
             "speed": speed,
             "monotonic": monotonic,
             "sleep": sleep,
+            "on_cadence_slip": on_cadence_slip,
         }
         if probe:
             kwargs["availability"] = build_availability(

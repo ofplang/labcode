@@ -232,10 +232,11 @@ belongs — as the operation that tried to command it failing.
 - **Recovery is automatic** — for a policy that re-checks. With `once` (the default) the
   first answer stands for the whole run; with an `interval`, a machine that comes back
   returns to the plan.
-- **A check costs run-loop time.** Probing happens in the process driving the run, one
-  machine at a time, on the replan that asks for it; the pause is bounded by (unreachable
-  machines × their `timeout`). A slow round shows up as the virtual clock advancing further
-  on that tick, not as an error.
+- **A check costs run-loop time**, and that cost is subject to §3.1 below: probing happens
+  in the process driving the run, one machine at a time, on the replan that asks for it.
+  This is the loop's most expensive optional step, so it is the likeliest thing to make a
+  cycle outgrow its poll period — which is why `interval: 0` is a setting for a diagnosis
+  rather than for operating a lab.
 - `lc run --no-probe` ignores the policies and treats every machine as reachable (the
   document is still validated, so an environment that is wrong about probing stays wrong).
   Each machine whose reachability changes is reported on stderr.
@@ -312,10 +313,46 @@ The advisory `duration` is the scheduler's estimate; the real duration is the sc
 A script error (an exception, a wrong/ missing output name, a non-conformant value) is a
 graceful runtime failure (§22.2): the operation ends `failed` and the run stops.
 
-Cadence: the effective poll period is `poll_interval × seconds_per_tick`. labcode defaults
+Cadence: the nominal poll period is `poll_interval × seconds_per_tick`. labcode defaults
 `seconds_per_tick` to ~20 s (so a real op is polled at an observable cadence, not
 sub-second, which would flood the replan loop); `lc run --seconds-per-tick/--speed/
 --poll-interval/--margin` override it.
+
+**The running-task margin defaults to the poll interval.** When the scheduler replans, a
+still-running operation is pinned to end at `max(reported end, now + margin)` — the margin
+is how far ahead of *now* an operation that has not finished is assumed to run for. A
+positive margin is therefore what keeps that operation's successor from being planned at
+`now` and dispatched onto a resource it has not released; and a real operation overruns its
+estimate as a matter of course, so labcode defaults the margin to one poll interval rather
+than to 0. Note that this does not depend on the cadence holding (§3.1): the pin moves with
+`now`, so skipped ticks cannot erode the protection.
+
+### 3.1 A poll cycle has to fit its poll period
+
+One turn of the loop costs the driving process real time: replanning, dispatching, and
+whatever else the dialect does before it waits again. Call that the **cycle cost** and the
+nominal poll period the **budget**. The relation between them decides how the run behaves,
+and there is no third case:
+
+- **cost < budget** — the loop waits out the difference, so a turn takes exactly the budget
+  and the clock lands on the next tick. The cost is *absorbed*: the run keeps the cadence it
+  was asked for and each operation's recorded duration reflects the lab. This is the case
+  the defaults are chosen for, and the case a lab should run in.
+- **cost > budget** — there is nothing left to wait for. The loop stops waiting, the ticks
+  it could not observe are **skipped**, and the clock jumps to the tick real time has
+  reached. Nothing is falsified by that: the clock still tells real time, and the lab really
+  did keep running while the loop was busy. But the *effective* period becomes the cycle
+  cost, so `poll_interval` and `seconds_per_tick` no longer set the cadence, and every
+  operation's recorded duration is rounded up to that coarser grid — a fast operation can be
+  recorded as having taken a whole cycle. **`lc run` reports the first slip** (how long the
+  cycle took, what the period was, how many ticks went unobserved), because the fix is a
+  setting only the caller can change.
+
+So: keep the budget comfortably larger than the cycle cost. What the cycle costs is not
+fixed — replanning grows with the workflow, and a dialect step such as availability probing
+(§1.5) can add seconds — so the margin wants to be generous rather than exact. A run whose
+recorded times matter (a checked-in example, a comparison against the plan's estimates)
+needs this to hold; a run that only has to *complete* does not.
 
 ## 4. Object identity — the reserved `_id` view key
 
