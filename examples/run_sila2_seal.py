@@ -81,6 +81,29 @@ def require(condition: bool, message: str) -> None:
         raise CheckFailed(message)
 
 
+def report_availability(machine: str, reachable: bool) -> None:
+    """Say when a machine's reachability changes, the way ``lc run`` does.
+
+    Neither environment here declares an `x-labcode.probe` policy, so nothing is probed and
+    this is never called. It is wired up anyway, because the alternative is silence: point
+    `--env` at a copy that enables probing and the run then names the machine it lost, rather
+    than failing with a no-route the operator has to account for."""
+    state = "reachable again" if reachable else "unreachable (probe)"
+    print(f"run_sila2_seal: {machine!r} is {state}", file=sys.stderr)
+
+
+def report_cadence_slip(skipped: int, budget: float, spent: float) -> None:
+    """Say once that a poll cycle outgrew its poll period (SPECIFICATIONS.md §3.1).
+
+    The run is not wrong when this happens -- it skipped the ticks it could not observe -- but
+    the cadence being delivered is not the one asked for, and only the caller can fix that."""
+    print(
+        f"run_sila2_seal: a poll cycle took {spent:.3g}s but the poll period is {budget:.3g}s, "
+        f"so {skipped} tick(s) went unobserved",
+        file=sys.stderr,
+    )
+
+
 def validate_front_door(workflow: Path, environment: Path) -> None:
     """Run the same two checks `lc run` does, in the same order, before executing anything.
 
@@ -225,6 +248,12 @@ def main(argv: list[str] | None = None) -> int:
                 random_seed=0,
                 seconds_per_tick=arguments.seconds_per_tick,
                 observation_out=str(observation_path),
+                # Availability is reported rather than swallowed: these callbacks are what
+                # turns a probing environment's findings into something the operator sees
+                # (`run_labcode` says nothing on its own). Harmless here -- the bundled
+                # environments declare no probe policy, so nothing is checked.
+                on_availability_change=report_availability,
+                on_cadence_slip=report_cadence_slip,
             )
         except Exception as error:  # noqa: BLE001 - any failure is this script's failure
             print(
