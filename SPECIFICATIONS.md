@@ -228,7 +228,9 @@ belongs — as the operation that tried to command it failing.
 - Only **new scheduling** is affected. An operation already running on a machine that has
   just gone down is not touched.
 - **If there is no other way, the run fails.** A workflow that needs a machine nothing can
-  replace stops with the scheduler's "no route" error rather than dispatching onto it.
+  replace stops with the scheduler's "no route" error rather than dispatching onto it. That
+  error names an arc or a mode, not a machine, so `lc run` appends the machines the probe
+  found unreachable — otherwise the answer to "why is there no route" is not in the message.
 - **Recovery is automatic** — for a policy that re-checks. With `once` (the default) the
   first answer stands for the whole run; with an `interval`, a machine that comes back
   returns to the plan.
@@ -237,6 +239,13 @@ belongs — as the operation that tried to command it failing.
   This is the loop's most expensive optional step, so it is the likeliest thing to make a
   cycle outgrow its poll period — which is why `interval: 0` is a setting for a diagnosis
   rather than for operating a lab.
+- **What costs is the machine that is *not* answering.** A reachable machine answers in well
+  under a millisecond on a local network. An unreachable one is only cheap when something
+  actively refuses the connection; a machine that was switched off, that left the network, or
+  that sits behind a host holding the port open while nothing serves it takes up to its
+  `timeout` to read as down. The cost of a round therefore follows the machines that are
+  down, not the ones that are up — so the round to size the poll period against (§3.1) is
+  the one in which the most of them are.
 - `lc run --no-probe` ignores the policies and treats every machine as reachable (the
   document is still validated, so an environment that is wrong about probing stays wrong).
   Each machine whose reachability changes is reported on stderr.
@@ -347,6 +356,12 @@ and there is no third case:
   recorded as having taken a whole cycle. **`lc run` reports the first slip** (how long the
   cycle took, what the period was, how many ticks went unobserved), because the fix is a
   setting only the caller can change.
+
+The report comes from the wait, so a cycle that never reaches it says nothing. When the
+replan at the top of a cycle fails outright — there is no route, because the work needs a
+machine that is gone — the run ends there, and no slip is reported however long that cycle
+took. The absence of the message means the loop never got as far as waiting; it is not a
+statement that the cycle was cheap.
 
 So: keep the budget comfortably larger than the cycle cost. What the cycle costs is not
 fixed — replanning grows with the workflow, and a dialect step such as availability probing
