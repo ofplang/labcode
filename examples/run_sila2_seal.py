@@ -156,7 +156,8 @@ def check_outcome(status: dict, result_boundary: dict, observation: list[dict]) 
     #    instrument reports how many cycles it has performed, and this run performed one.
     outputs = (result_boundary.get("boundary") or {}).get("outputs") or {}
     cycles = (outputs.get("cycle_count") or {}).get("view")
-    require(isinstance(cycles, int), f"cycle_count is not an integer reading: {cycles!r}")
+    if not isinstance(cycles, int):
+        raise CheckFailed(f"cycle_count is not an integer reading: {cycles!r}")
     require(cycles >= 1, f"cycle_count should have counted at least this run's cycle: {cycles}")
 
     # 3. The plate came back to the spot it started from, and it is the same plate. `_id` is

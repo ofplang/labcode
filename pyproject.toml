@@ -84,7 +84,17 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "W"]
 
 [tool.mypy]
 python_version = "3.10"
-files = ["labcode"]
+# `examples/` is checked too: the scripts are the documented way to drive a labcode
+# run, so a type error there is a claim about the API that no longer holds.
+files = ["labcode", "examples"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+# `render_plate_line.py` draws its chart with the scheduler's visualizer, which
+# reaches ortools and so numpy, whose stubs use 3.12-only syntax that fails to parse
+# under python_version 3.10. Don't follow into either -- the same override the
+# ofplang-schedule and ofplang-run repos carry.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "ortools.*"]
+follow_imports = "skip"
