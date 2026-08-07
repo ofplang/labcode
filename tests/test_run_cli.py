@@ -82,6 +82,32 @@ def test_e2e_lc_run_stamps_deterministic_object_ids(tmp_path):
     assert doc1 == yaml.safe_load(rb2.read_text(encoding="utf-8"))  # deterministic
 
 
+def test_cli_observation_out_streams_the_observation_document(tmp_path):
+    # `--observation-out` forwards to the runner's observation sink, so the flag produces
+    # the same YAML multi-document stream `ofp-run run --observation-out` does: a header
+    # naming the schema, one entry per completed activity, and a trailer.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    import yaml
+
+    obs = tmp_path / "observation.yaml"
+    code = run_cli.main([
+        str(EXAMPLES / "plate_line.workflow.yaml"),
+        "--env", str(EXAMPLES / "plate_line.env.yaml"),
+        "--boundary", str(EXAMPLES / "plate_line.boundary.yaml"),
+        "--seconds-per-tick", "0.001",
+        "-o", str(tmp_path / "status.yaml"),
+        "--observation-out", str(obs),
+    ])
+    assert code == 0
+
+    docs = list(yaml.safe_load_all(obs.read_text(encoding="utf-8")))
+    assert docs[0]["schema"] == "ofplang-observation/v0"
+    assert docs[-1]["final"] is True and docs[-1]["outcome"] == "completed"
+    # The Plate the workflow creates is traceable by its `_id` through the entries.
+    processed = [d for d in docs[1:-1] if d.get("kind") == "processing"]
+    assert processed, "expected at least one completed processing activity"
+
+
 def test_e2e_lc_run_expands_imported_object_types_and_stamps_ids(tmp_path):
     # `$import` and `_id` compose: the object types (Plate/Tube) are moved into an
     # imported fragment, so the shared front door must expand it first; then

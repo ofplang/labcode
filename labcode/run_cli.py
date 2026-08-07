@@ -68,6 +68,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", metavar="OUT", help="write the final status YAML here")
     p.add_argument("--boundary-out", metavar="FILE", help="write the result boundary document here")
     p.add_argument(
+        # Same flag and meaning as `ofp-run run --observation-out`: the value layer's
+        # companion to the status document, streamed one YAML document per completed
+        # activity. Forwarded verbatim to `run_labcode`, which already took the argument.
+        "--observation-out", metavar="FILE",
+        help="stream the observation document here (YAML multi-document): each completed"
+             " activity's input/output view values, appended as it finishes",
+    )
+    p.add_argument(
         "--no-validate", action="store_true",
         help="skip the ofplang-validate front-door check of the workflow",
     )
@@ -202,6 +210,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_interval=args.poll_interval,
             seconds_per_tick=args.seconds_per_tick,
             speed=args.speed,
+            observation_out=args.observation_out,
             probe=not args.no_probe,
             on_availability_change=report_availability,
             on_cadence_slip=report_cadence_slip,
