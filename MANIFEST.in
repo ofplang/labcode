@@ -1,0 +1,6 @@
+# setuptools-scm hands the sdist every file git tracks, and uv.lock is tracked so
+# that the versions a developer actually gets stay reviewable. That lock describes
+# the development environment only -- an installer resolves the wheel's dependency
+# metadata and never reads it -- so it has no business in the distribution, where
+# it would roughly double the sdist. Excluded here; still in the repository.
+exclude uv.lock
