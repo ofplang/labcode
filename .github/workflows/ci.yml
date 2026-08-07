@@ -43,3 +43,17 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: mypy
+
+  # `uv sync --extra sila2` is how a development environment gets built here, and
+  # uv.lock records what it produces. This asserts the lock still agrees with
+  # pyproject.toml, so a raised dependency floor or a new extra cannot leave the
+  # environment pinned to versions the project no longer accepts. It deliberately
+  # does not ask whether newer releases exist -- that is `uv lock --upgrade`, run
+  # when someone means to move. The jobs above stay on pip so they keep testing
+  # against the latest released siblings.
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv lock --check
