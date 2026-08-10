@@ -1,0 +1,120 @@
+# A labcode example driven by REAL SiLA2 servers: one Plate makes a full circuit through
+# four instruments and comes back to where it started. Every step's *how* -- the four
+# instrument operations and the five moves -- is supplied by the environment as an
+# `x-labcode.script` (see sila2_plate_cycle.wrapped.env.yaml); this file is portable
+# ofplang v0 and says only *what*.
+#
+#   (in) plate ──▶ peel ──▶ seal ──▶ thermal_cycle ──▶ rotate ──▶ (out) plate
+#                    │        │            │
+#           (out) tape_left   │     (out) elapsed_time
+#                      (out) cycle_count
+#
+# Where sila2_seal exercises one instrument, this one exercises a line: the Plate is
+# unsealed, resealed, thermal-cycled and spun down, and the *same* Plate comes back out
+# (identity preserved by objects.map at every step, so its `_id` can be followed from the
+# input boundary through all four processes to the output).
+#
+# The Plate is not created here: it enters and leaves at the run boundary (see
+# sila2_plate_cycle.boundary.yaml), which is what makes the run a round trip and therefore
+# repeatable.
+#
+# Each instrument reports something real rather than a placeholder: the seal remover says
+# how much tape it has left, the sealer how many cycles it has performed, the thermal
+# cycler how long its run took. The centrifuge has no counter to read, so `rotate` produces
+# no data at all -- it is the example of a step that only carries its Object through.
+spec_version: "0.0"
+
+types:
+  # A microplate. Declared with no view fields, like sila2_seal's Plate: it arrives from the
+  # run boundary as a bare Object at a spot, and there is nothing about it these processes
+  # read. labcode still injects the reserved `_id`, which is what makes the circuit
+  # checkable -- the same Plate must come back.
+  Plate:
+    domain: object
+
+processes:
+
+  # Remove the seal. Object-bearing: the Plate goes in and the *same* Plate comes out
+  # (objects.map), and the instrument's remaining supply-spool tape is reported as Pure Data.
+  peel:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:     { type: Plate, phase: data }   # same name as the input: the same plate
+      tape_left: { type: Int,   phase: data }   # a spool reading, so an integer
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # Reseal it. The sealer's cycle counter is the reading here -- it goes up because this
+  # run performed a cycle.
+  seal:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:       { type: Plate, phase: data }
+      cycle_count: { type: Int,   phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # Thermal-cycle it. `elapsed_time` is the instrument's own hh:mm:ss string, read after the
+  # run, so it is non-zero exactly because a run happened.
+  thermal_cycle:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:        { type: Plate,  phase: data }
+      elapsed_time: { type: String, phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # Spin it down. The only step with no data output: the centrifuge exposes no counter or
+  # measurement, so this process carries its Plate through and reports nothing.
+  rotate:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate: { type: Plate, phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  main:
+    kind: composite
+    inputs:
+      plate: { type: Plate, phase: data }         # the Plate comes in at the run boundary
+    outputs:
+      plate:        { type: Plate,  phase: data } # ...and the same Plate goes back out
+      tape_left:    { type: Int,    phase: data }
+      cycle_count:  { type: Int,    phase: data }
+      elapsed_time: { type: String, phase: data }
+    body:
+      nodes:
+        - id: Peel
+          process: peel
+          state:
+            plate: { from: inputs.plate }         # Object arc: a move is scheduled for it
+        - id: Seal
+          process: seal
+          state:
+            plate: { from: Peel.plate }
+        - id: ThermalCycle
+          process: thermal_cycle
+          state:
+            plate: { from: Seal.plate }
+        - id: Rotate
+          process: rotate
+          state:
+            plate: { from: ThermalCycle.plate }
+      returns:
+        plate:        { from: Rotate.plate }
+        tape_left:    { from: Peel.tape_left }
+        cycle_count:  { from: Seal.cycle_count }
+        elapsed_time: { from: ThermalCycle.elapsed_time }
+entry: main

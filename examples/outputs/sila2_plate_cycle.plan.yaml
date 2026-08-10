@@ -1,0 +1,146 @@
+time:
+  unit: second
+now: 87
+interface:
+  inputs:
+    plate: station.slot1
+  outputs:
+    plate: station.slot1
+activities:
+- kind: transport
+  start: 0
+  end: 1
+  from_spot: station.slot1
+  to_spot: seal_remover.stage
+  transporter: arm
+  arc:
+    from:
+      node: []
+      port: plate
+    to:
+      node:
+      - Peel
+      port: plate
+  status: completed
+- kind: processing
+  start: 1
+  end: 13
+  process: peel
+  mode: m0
+  node:
+  - Peel
+  devices:
+  - seal_remover
+  input_spots:
+    plate: seal_remover.stage
+  output_spots:
+    plate: seal_remover.stage
+  status: completed
+- kind: transport
+  start: 13
+  end: 14
+  from_spot: seal_remover.stage
+  to_spot: plateloc.stage
+  transporter: arm
+  arc:
+    from:
+      node:
+      - Peel
+      port: plate
+    to:
+      node:
+      - Seal
+      port: plate
+  status: completed
+- kind: processing
+  start: 14
+  end: 31
+  process: seal
+  mode: m0
+  node:
+  - Seal
+  devices:
+  - plateloc
+  input_spots:
+    plate: plateloc.stage
+  output_spots:
+    plate: plateloc.stage
+  status: completed
+- kind: transport
+  start: 31
+  end: 32
+  from_spot: plateloc.stage
+  to_spot: thermal_cycler.block
+  transporter: arm
+  arc:
+    from:
+      node:
+      - Seal
+      port: plate
+    to:
+      node:
+      - ThermalCycle
+      port: plate
+  status: completed
+- kind: processing
+  start: 32
+  end: 54
+  process: thermal_cycle
+  mode: m0
+  node:
+  - ThermalCycle
+  devices:
+  - thermal_cycler
+  input_spots:
+    plate: thermal_cycler.block
+  output_spots:
+    plate: thermal_cycler.block
+  status: completed
+- kind: transport
+  start: 54
+  end: 55
+  from_spot: thermal_cycler.block
+  to_spot: centrifuge.deck
+  transporter: arm
+  arc:
+    from:
+      node:
+      - ThermalCycle
+      port: plate
+    to:
+      node:
+      - Rotate
+      port: plate
+  status: completed
+- kind: processing
+  start: 55
+  end: 85
+  process: rotate
+  mode: m0
+  node:
+  - Rotate
+  devices:
+  - centrifuge
+  input_spots:
+    plate: centrifuge.deck
+  output_spots:
+    plate: centrifuge.deck
+  status: completed
+- kind: transport
+  start: 85
+  end: 87
+  from_spot: centrifuge.deck
+  to_spot: station.slot1
+  transporter: arm
+  arc:
+    from:
+      node:
+      - Rotate
+      port: plate
+    to:
+      node: []
+      port: plate
+  status: completed
+objective:
+  kind: makespan
+  value: 87

@@ -1,0 +1,22 @@
+# Run boundary for sila2_plate_cycle.workflow.yaml.
+#
+# The Plate goes in and comes back out at the SAME spot, as in sila2_seal. That is what makes
+# the circuit a round trip: the world ends where it began, so the example can be run again
+# without anyone putting it back. (Restoring the world is the operator's job -- there is no
+# interface to the physical world for a client to reach for.)
+#
+# `station.slot1` is where the reference lab (ofplang-sila2-backend v0.3.0) seeds its one
+# plate. `Plate` has no view fields, so no `view` is supplied; labcode still injects the
+# reserved `_id`, and the result boundary echoes it -- which is how one checks that the plate
+# that came back from the circuit is the plate that went in.
+#
+# `tape_left`, `cycle_count` and `elapsed_time` are Pure Data (no spot); their produced values
+# are filled in at run end.
+boundary:
+  inputs:
+    plate: { spot: station.slot1 }
+  outputs:
+    tape_left: {}
+    cycle_count: {}
+    elapsed_time: {}
+    plate: { spot: station.slot1 }

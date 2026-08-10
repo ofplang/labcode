@@ -1,0 +1,199 @@
+schema: ofplang-observation/v0
+time:
+  unit: second
+interface:
+  inputs:
+    plate: station.slot1
+  outputs:
+    plate: station.slot1
+---
+kind: transport
+from_spot: station.slot1
+to_spot: seal_remover.stage
+transporter: arm
+arc:
+  from:
+    node: []
+    port: plate
+  to:
+    node:
+    - Peel
+    port: plate
+start: 0
+end: 1
+moved:
+  view:
+    _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+kind: processing
+process: peel
+mode: m0
+node:
+- Peel
+devices:
+- seal_remover
+input_spots:
+  plate: seal_remover.stage
+output_spots:
+  plate: seal_remover.stage
+start: 1
+end: 13
+inputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+outputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+  tape_left:
+    view: 1189
+---
+kind: transport
+from_spot: seal_remover.stage
+to_spot: plateloc.stage
+transporter: arm
+arc:
+  from:
+    node:
+    - Peel
+    port: plate
+  to:
+    node:
+    - Seal
+    port: plate
+start: 13
+end: 14
+moved:
+  view:
+    _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+kind: processing
+process: seal
+mode: m0
+node:
+- Seal
+devices:
+- plateloc
+input_spots:
+  plate: plateloc.stage
+output_spots:
+  plate: plateloc.stage
+start: 14
+end: 31
+inputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+outputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+  cycle_count:
+    view: 19
+---
+kind: transport
+from_spot: plateloc.stage
+to_spot: thermal_cycler.block
+transporter: arm
+arc:
+  from:
+    node:
+    - Seal
+    port: plate
+  to:
+    node:
+    - ThermalCycle
+    port: plate
+start: 31
+end: 32
+moved:
+  view:
+    _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+kind: processing
+process: thermal_cycle
+mode: m0
+node:
+- ThermalCycle
+devices:
+- thermal_cycler
+input_spots:
+  plate: thermal_cycler.block
+output_spots:
+  plate: thermal_cycler.block
+start: 32
+end: 54
+inputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+outputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+  elapsed_time:
+    view: 00:00:10
+---
+kind: transport
+from_spot: thermal_cycler.block
+to_spot: centrifuge.deck
+transporter: arm
+arc:
+  from:
+    node:
+    - ThermalCycle
+    port: plate
+  to:
+    node:
+    - Rotate
+    port: plate
+start: 54
+end: 55
+moved:
+  view:
+    _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+kind: processing
+process: rotate
+mode: m0
+node:
+- Rotate
+devices:
+- centrifuge
+input_spots:
+  plate: centrifuge.deck
+output_spots:
+  plate: centrifuge.deck
+start: 55
+end: 85
+inputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+outputs:
+  plate:
+    view:
+      _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+kind: transport
+from_spot: centrifuge.deck
+to_spot: station.slot1
+transporter: arm
+arc:
+  from:
+    node:
+    - Rotate
+    port: plate
+  to:
+    node: []
+    port: plate
+start: 85
+end: 87
+moved:
+  view:
+    _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
+---
+final: true
+now: 87
+outcome: completed
