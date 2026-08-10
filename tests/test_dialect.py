@@ -223,6 +223,16 @@ def test_reserved_client_input_port_is_rejected():
     assert any("sila2_client" in e and "reserve" in e for e in result.errors)
 
 
+def test_the_helper_module_name_is_not_reserved():
+    # `sila2_commands` is imported by a script, never injected into it, so it takes no name
+    # away from the author -- an input port may be called that.
+    workflow = {"processes": {"m": {"inputs": {"sila2_commands": {"type": "Int"}}}}}
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": CONNECTION}})]
+    result = validate_dialect(workflow, env)
+    assert result.ok, result.errors
+
+
 def test_reserved_names_are_free_for_a_raw_script():
     # Nothing is injected into a raw script, so the names are the author's to use.
     workflow = {"processes": {"m": {"inputs": {"sila2_client": {"type": "Int"}}}}}

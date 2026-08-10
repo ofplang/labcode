@@ -81,6 +81,22 @@ def test_wrap_binds_every_client_by_id_in_order(fake_connect):
     assert run_python_script(wrapped, {}) == {"ids": ["plateloc", "arm"], "first": 50053}
 
 
+def test_wrap_injects_connections_and_nothing_else(fake_connect):
+    # The helper of §1.6.1 is reached by an import the script writes, not by injection, so
+    # the wrapper must not bind it -- a script that does not import it does not have it.
+    wrapped = sila2.wrap("pass", [("plateloc", PLATELOC)])
+    assert "sila2_commands" not in wrapped
+
+
+def test_a_script_may_import_the_helper_itself(fake_connect):
+    # ...and importing it is all it takes: the child runs in an interpreter that has labcode.
+    wrapped = sila2.wrap(
+        "from labcode.sila2_commands import settle\nreturn {'ok': callable(settle)}",
+        [("plateloc", PLATELOC)],
+    )
+    assert run_python_script(wrapped, {}) == {"ok": True}
+
+
 def test_wrap_of_empty_code_still_compiles(fake_connect):
     # An empty body would leave the generated `with` without one.
     assert run_python_script(sila2.wrap("", [("plateloc", PLATELOC)]), {}) is None

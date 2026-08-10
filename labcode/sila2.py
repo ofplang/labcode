@@ -110,7 +110,12 @@ def wrap(code: str, targets: Sequence[tuple[str, Connection]]) -> str:
 
     The result is a function body like any other script -- the child runs it unchanged --
     with `CLIENTS_LOCAL` and `CLIENT_LOCAL` bound for the script to use. An empty body
-    falls back to ``pass`` so the ``with`` still compiles."""
+    falls back to ``pass`` so the ``with`` still compiles.
+
+    Connections are the only thing bound here. `labcode.sila2_commands.settle` is a helper a
+    script may want, but it arrives by an ordinary ``import`` written in the script, not by
+    injection: a name that appears out of nowhere is worth spending only on what a script
+    cannot obtain for itself, and a connection is that; an import is not."""
     literals = ",\n".join(
         f"    ({identifier!r}, {connection.host!r}, {connection.port}, "
         f"{connection.insecure!r})"

@@ -47,6 +47,10 @@ PROBE_KEYS: tuple[str, ...] = ("enabled", "timeout", "interval")
 #: The names a `sila2` script finds in its scope (the clients by device id, and the first
 #: of them). They are *reserved*: an input port of the same name would be silently
 #: overwritten by them, since a script's inputs are bound as its function's parameters.
+#:
+#: Connections are the only thing injected, so this list is the only thing reserved. The
+#: `labcode.sila2_commands` helpers reach a script by an ordinary ``import`` it writes
+#: itself, which needs no name here and takes none away from the author.
 CLIENTS_LOCAL = "sila2_clients"
 CLIENT_LOCAL = "sila2_client"
 RESERVED_LOCALS: tuple[str, ...] = (CLIENTS_LOCAL, CLIENT_LOCAL)

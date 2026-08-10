@@ -282,6 +282,41 @@ x-labcode:
 - **Everything else is still the script's own.** The flavor supplies connections, nothing
   more: waiting for an observable command to finish (the standard `sila2` polling pattern)
   belongs in the code, as it does in a `raw` script.
+
+#### 1.6.1 `labcode.sila2_commands` — the polling loop, written once
+
+Waiting for an observable command is the same loop in every script that issues one, so
+labcode ships it. It is an **ordinary module**, reached by an ordinary import — nothing is
+injected, and a script that does not import it does not have it:
+
+```yaml
+code: |
+  from labcode.sila2_commands import settle
+
+  feature = sila2_client.PlateLocController
+  settle(feature.StartCycle(), "StartCycle")
+  return {"cycle_count": int(feature.CycleCount.get())}
+```
+
+`settle(instance, label, *, timeout=3600.0, poll=1.0)` polls `instance` until it reports
+`done` and returns its `get_responses()`.
+
+This is deliberately *not* part of the calling convention above. A name that appears out of
+nowhere is worth spending only on what a script cannot obtain for itself — a live connection
+is that, an import is not — and keeping it an import means the helper reserves no name, is
+equally available to a `raw` script, and stays visible in the code that depends on it.
+
+- **A timeout is not a cancel.** SiLA2 offers no way to stop a command already issued, so a
+  `settle` that times out fails the *operation* while the instrument carries on. Whatever
+  state that leaves the lab in is the operator's to restore, as for any operation that
+  failed part way. The default timeout is therefore generous rather than tight: its purpose
+  is to turn a hang into a diagnosable failure, since nothing else in the stack bounds an
+  operation's running time.
+- **Its timeout is in real seconds**, and is unrelated to the mode's `duration` — which is
+  an *estimate*, in environment time, for scheduling. A schedule's estimate is not a
+  deadline, and `--seconds-per-tick` does not rescale the timeout.
+- **Passing an unobservable command's response is an error** (`sila2_not_observable`): such
+  a command has already finished when its call returns, and there is nothing to settle.
 - A `sila2` script is only interpreted where the dialect is — in an environment
   `x-labcode`. A workflow's own `script` (v0 §22) has no `flavor`.
 
