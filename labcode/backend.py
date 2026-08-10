@@ -56,7 +56,7 @@ from labcode.probe import (
     Prober,
     build_availability,
 )
-from labcode.sila2 import failing_code, targets_of, wrap
+from labcode.sila2 import failing_code, plan_clients, wrap
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
@@ -64,24 +64,25 @@ from labcode.sila2 import failing_code, targets_of, wrap
 DEFAULT_SECONDS_PER_TICK = 20.0
 
 
-def _flavored(code: str, script, identifiers, connections, label: str) -> str:
+def _flavored(code: str, script, machines, label: str) -> str:
     """`code` as its flavor asks for it: a `sila2` script wrapped so its clients are open
     (SPECIFICATIONS.md §1.1), a `raw` one unchanged.
 
-    `identifiers` are the machines the operation may connect to -- a mode's devices, or a
-    route's transporter. With none of them reachable the operation cannot run at all, which
-    is returned as *failing code* rather than raised: a resolver runs inside dispatch, where
-    an exception would escape the run instead of failing one operation. The dialect front
-    door rejects this case up front, so this is a backstop."""
+    `machines` are the machines the operation holds, as ``(id, connections)`` in the order
+    their clients are opened (`plan_clients`) -- a mode's devices, or a route's transporter
+    and the devices at either end. With none of them reachable the operation cannot run at
+    all, which is returned as *failing code* rather than raised: a resolver runs inside
+    dispatch, where an exception would escape the run instead of failing one operation. The
+    dialect front door rejects this case up front, so this is a backstop."""
     if script_flavor(script) != FLAVOR_SILA2:
         return code
-    targets = targets_of(identifiers, connections)
+    targets, unavailable = plan_clients(machines)
     if not targets:
         return failing_code(
             f"labcode: {label} declares x-labcode.script.flavor 'sila2' but none of its "
             f"machines declares an x-labcode.connection"
         )
-    return wrap(code, targets)
+    return wrap(code, targets, unavailable=unavailable)
 
 
 def make_code_resolver(environment: dict) -> Callable:
@@ -112,9 +113,13 @@ def make_code_resolver(environment: dict) -> Callable:
             script = xlab.get("script")
             code = python_code(script)
             if code is not None:
+                listed = mode_entry.get("devices")
+                machines = [
+                    (identifier, connections)
+                    for identifier in (listed if isinstance(listed, list) else [])
+                ]
                 return _flavored(
-                    code, script, mode_entry.get("devices"), connections,
-                    f"process {process!r} mode {mode!r}",
+                    code, script, machines, f"process {process!r} mode {mode!r}"
                 )
         # (1) the workflow's own script process (v0 §22). A workflow script carries no
         # flavor: the dialect lives in the environment.
@@ -123,15 +128,44 @@ def make_code_resolver(environment: dict) -> Callable:
     return resolver
 
 
+def _spot_device(spot) -> str | None:
+    """The device a qualified spot (``<device>.<spot>``, schedule §8.2) belongs to."""
+    if not isinstance(spot, str):
+        return None
+    return spot.partition(".")[0] or None
+
+
+def _transport_machines(transport: dict, transporters: dict, devices: dict) -> list:
+    """The machines a transport holds, in the order their clients are opened: the
+    **transporter first**, then the devices at either end of the route.
+
+    All three are the operation's to command, because all three are what it occupies: a
+    transport activity holds the source device, the destination device and the transporter
+    for its whole body (schedule SPECIFICATIONS §4.5). That is what makes a lid openable by
+    the move that needs it open -- nothing else can be using the instrument meanwhile.
+
+    The transporter stays first so that `CLIENT_LOCAL` -- the singular alias, which is "the
+    first of them" (§1.6) -- remains the machine that does the moving, whatever else the
+    route touches. Its id is looked up among the transporters and the endpoints' among the
+    devices, so the two id spaces cannot shadow each other; a route whose ends are the same
+    device is connected to once (`plan_clients`)."""
+    return [
+        (transport.get("transporter"), transporters),
+        *((_spot_device(transport.get(end)), devices) for end in ("from", "to")),
+    ]
+
+
 def make_transport_resolver(environment: dict) -> Callable:
     """Build the labcode transport code resolver, closed over `environment`.
 
     The returned ``resolver(transporter, from_spot, to_spot) -> str | None`` maps a
     dispatched transport to its env ``transports[]`` route's ``x-labcode.script.code``,
-    matched exactly on ``(transporter, from, to)`` -- wrapped with the transporter's SiLA2
-    client when the script's flavor asks for that; None when the route has no script (the
-    transport then runs as a plain timed move -- bookkeeping only, no device command)."""
-    connections = transporter_connections(environment)
+    matched exactly on ``(transporter, from, to)`` -- wrapped with the SiLA2 clients of the
+    machines it holds (`_transport_machines`) when the script's flavor asks for that; None
+    when the route has no script (the transport then runs as a plain timed move --
+    bookkeeping only, no device command)."""
+    transporters = transporter_connections(environment)
+    devices = device_connections(environment)
     routes: dict[tuple, str | None] = {}
     for transport in environment.get("transports") or []:
         if not isinstance(transport, dict):
@@ -143,7 +177,8 @@ def make_transport_resolver(environment: dict) -> Callable:
         code = python_code(script)
         if code is not None:
             code = _flavored(
-                code, script, [transporter], connections,
+                code, script,
+                _transport_machines(transport, transporters, devices),
                 f"transport {transporter!r} "
                 f"{transport.get('from')} -> {transport.get('to')}",
             )

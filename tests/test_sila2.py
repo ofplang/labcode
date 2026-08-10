@@ -197,21 +197,93 @@ def test_connect_says_so_when_the_client_library_is_missing(monkeypatch):
 
 # -- picking the machines to connect to ----------------------------------------
 
-
-def test_targets_keep_declaration_order_and_skip_the_unreachable():
-    connections = {"plateloc": PLATELOC, "arm": ARM}
-    assert sila2.targets_of(["arm", "station", "plateloc"], connections) == [
-        ("arm", ARM), ("plateloc", PLATELOC),
-    ]
+DEVICES = {"plateloc": PLATELOC}
+TRANSPORTERS = {"arm": ARM}
 
 
-def test_targets_do_not_repeat_a_machine():
-    # A device listed twice must be connected to once.
-    assert sila2.targets_of(["plateloc", "plateloc"], {"plateloc": PLATELOC}) == [
-        ("plateloc", PLATELOC),
-    ]
+def _held(*identifiers, connections=DEVICES):
+    return [(identifier, connections) for identifier in identifiers]
 
 
-def test_targets_of_nothing_connectable_is_empty():
-    assert sila2.targets_of(["station"], {"plateloc": PLATELOC}) == []
-    assert sila2.targets_of(None, {"plateloc": PLATELOC}) == []
+def test_plan_keeps_the_order_held_and_says_why_a_machine_is_skipped():
+    targets, unavailable = sila2.plan_clients(_held("plateloc", "station"))
+    assert targets == [("plateloc", PLATELOC)]
+    # Not an error: an operation may hold a device it does not drive. But not silent
+    # either -- the reason travels, so a script that reaches for it hears it.
+    assert unavailable == {"station": sila2.NO_CONNECTION}
+
+
+def test_plan_looks_each_machine_up_in_its_own_map():
+    # A transport holds its transporter and the devices at either end, and the two id
+    # spaces are separate: neither map has to know about the other's machines.
+    targets, unavailable = sila2.plan_clients(
+        [("arm", TRANSPORTERS), ("plateloc", DEVICES), ("station", DEVICES)]
+    )
+    assert targets == [("arm", ARM), ("plateloc", PLATELOC)]
+    assert unavailable == {"station": sila2.NO_CONNECTION}
+
+
+def test_plan_does_not_repeat_a_machine():
+    # A device held twice (a route whose ends are the same device, a mode listing it
+    # twice) is connected to once, and the first mention decides the order.
+    assert sila2.plan_clients(_held("plateloc", "plateloc"))[0] == [("plateloc", PLATELOC)]
+    # An id in both maps resolves to whichever holds it first -- which is how the
+    # transporter keeps its place at the head of the list.
+    targets, _ = sila2.plan_clients([("arm", TRANSPORTERS), ("arm", {"arm": PLATELOC})])
+    assert targets == [("arm", ARM)]
+
+
+def test_plan_of_nothing_connectable_has_no_targets():
+    targets, unavailable = sila2.plan_clients(_held("station"))
+    assert targets == []
+    assert unavailable == {"station": sila2.NO_CONNECTION}
+    # Malformed ids are the validator's to report; here they are simply not machines.
+    assert sila2.plan_clients([(None, DEVICES), ("", DEVICES)]) == ([], {})
+
+
+# -- the machines an operation holds but has no client for ----------------------
+
+
+def _wrap_with_station(code):
+    """`code` wrapped for an operation holding two machines, one of them addressless."""
+    return sila2.wrap(code, [("arm", ARM)], unavailable={"station": sila2.NO_CONNECTION})
+
+
+def test_wrap_is_unchanged_when_every_machine_is_reachable():
+    assert "unavailable" not in sila2.wrap("pass", [("plateloc", PLATELOC)])
+
+
+def test_using_a_machine_with_no_client_says_why(fake_connect):
+    wrapped = _wrap_with_station("sila2_clients['station'].LidController.OpenLid()")
+    with pytest.raises(DeviceComputationError) as caught:
+        run_python_script(wrapped, {})
+    assert caught.value.code == "sila2_not_connected"
+    assert "station" in str(caught.value)
+    assert "x-labcode.connection" in str(caught.value)  # what to fix, not just what broke
+    assert fake_connect[0].closed  # and the clients that did open still closed
+
+
+def test_a_machine_with_no_client_is_falsy(fake_connect):
+    # So a script that can work either way needs no knowledge of how absence is spelled.
+    wrapped = _wrap_with_station(
+        "return {'station': bool(sila2_clients['station']), 'arm': bool(sila2_clients['arm'])}"
+    )
+    assert run_python_script(wrapped, {}) == {"station": False, "arm": True}
+
+
+def test_an_id_the_operation_does_not_hold_fails_at_once(fake_connect):
+    # A typo, not a machine: turning it into a falsy stand-in would let it survive until
+    # something odd happened later.
+    wrapped = _wrap_with_station("sila2_clients['statoin']")
+    with pytest.raises(DeviceComputationError) as caught:
+        run_python_script(wrapped, {})
+    assert "statoin" in str(caught.value)
+    assert "'arm', 'station'" in str(caught.value)  # and what it does hold
+
+
+def test_the_clients_are_otherwise_an_ordinary_mapping(fake_connect):
+    wrapped = _wrap_with_station(
+        "return {'in': 'station' in sila2_clients, 'get': sila2_clients.get('station'),"
+        " 'ids': list(sila2_clients)}"
+    )
+    assert run_python_script(wrapped, {}) == {"in": False, "get": None, "ids": ["arm"]}

@@ -474,6 +474,19 @@ def test_sila2_transport_without_a_transporter_connection_is_rejected():
     assert any("declares no x-labcode.connection" in e for e in result.errors)
 
 
+def test_sila2_transport_does_not_need_its_ends_to_be_connected():
+    # A transport is handed the clients of the devices at either end as well as its
+    # transporter, but an end that declares no connection is not an error: a plain holding
+    # location has no address, and a route through one is ordinary. Only the transporter --
+    # the machine that does the moving, and `sila2_client` -- has to be reachable.
+    env = _transport_env({"transporter": "arm", "from": "station.slot1", "to": "reader.stage",
+                          "x-labcode": _sila2_script()})
+    env["transporters"] = [{"id": "arm", "x-labcode": {"connection": CONNECTION}}]
+    env["devices"] = [_device("station", spots=["slot1"]), _device("reader")]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+
+
 def test_sila2_transport_naming_an_undeclared_transporter_says_so():
     env = _transport_env({"transporter": "arm", "from": "a", "to": "b",
                           "x-labcode": _sila2_script()})

@@ -164,6 +164,67 @@ def test_transport_resolver_wraps_a_sila2_flavor_script():
     assert "sila2_client.Pick(LocationSpecifier=from_spot)" in code
 
 
+def _sila2_transport_env(source: str, destination: str) -> dict:
+    """A route between two of three devices, only two of which have an address."""
+    def device(identifier, spot, port=None):
+        entry = {"id": identifier, "spots": [spot]}
+        if port is not None:
+            entry["x-labcode"] = {"connection": {**CONNECTION, "port": port}}
+        return entry
+
+    return {
+        "devices": [
+            device("plateloc", "stage", 50053),
+            device("cycler", "block", 50055),
+            device("station", "slot1"),
+        ],
+        "transporters": [
+            {"id": "arm", "x-labcode": {"connection": {**CONNECTION, "port": 50057}}},
+        ],
+        "transports": [{
+            "transporter": "arm", "from": source, "to": destination, "duration": 3,
+            "x-labcode": {"script": {
+                "language": "python", "flavor": "sila2",
+                "code": "sila2_clients['cycler'].Lid.OpenLid()",
+            }},
+        }],
+    }
+
+
+def test_a_transport_gets_its_transporter_and_the_devices_at_both_ends():
+    # A transport activity occupies the source device, the destination device and the
+    # transporter for its whole body (schedule §4.5), so all three are its to command --
+    # that is what lets the move that needs a lid open be the one that opens it.
+    code = make_transport_resolver(
+        _sila2_transport_env("plateloc.stage", "cycler.block")
+    )("arm", "plateloc.stage", "cycler.block")
+    assert code is not None
+    assert "('plateloc', '127.0.0.1', 50053, True)" in code
+    assert "('cycler', '127.0.0.1', 50055, True)" in code
+    # The transporter stays first, so `sila2_client` -- "the first of them" (§1.6) -- is
+    # still the machine that does the moving.
+    order = [code.index(f"({name!r},") for name in ("arm", "plateloc", "cycler")]
+    assert order == sorted(order)
+
+
+def test_an_end_with_no_connection_is_not_connected_to_but_is_named():
+    code = make_transport_resolver(
+        _sila2_transport_env("station.slot1", "cycler.block")
+    )("arm", "station.slot1", "cycler.block")
+    assert code is not None
+    assert "('station'," not in code  # a holding location has no address to open
+    # ...but the script hears why if it reaches for it, rather than getting a bare KeyError.
+    assert "unavailable={'station': 'no_connection'}" in code
+
+
+def test_a_route_within_one_device_connects_to_it_once():
+    code = make_transport_resolver(
+        _sila2_transport_env("cycler.block", "cycler.block")
+    )("arm", "cycler.block", "cycler.block")
+    assert code is not None
+    assert code.count("('cycler',") == 1
+
+
 TRANSPORT_ENV = {
     "time": {"unit": "second"},
     "devices": [{"id": "s0", "spots": ["core"]}, {"id": "s1", "spots": ["core"]}],

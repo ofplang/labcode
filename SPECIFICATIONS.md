@@ -160,6 +160,12 @@ a script uses it.
 - a transport script with `flavor: sila2` requires that route's `transporter` to declare
   one.
 
+A transport is also handed the clients of the devices at either **end** of its route
+(§1.6), but those are *not* required to declare a `connection`: a route through a plain
+holding location is ordinary, and the end without an address is simply not connected to.
+The transporter is the one that must be reachable, because it is the machine that does the
+moving — and the one `sila2_client` names.
+
 Declaring a `connection` on a device no script connects to is allowed — it is how an
 environment is prepared before the scripts that use it are written.
 
@@ -258,8 +264,8 @@ of the input ports of §1.2 (or the transport locals of §1.3), the code sees:
 
 | name | meaning |
 |---|---|
-| `sila2_clients` | the clients by **device id** (`transporter id` for a transport), in `devices[]` order, holding **only** the machines that declared a `connection` |
-| `sila2_client` | the first of them — the one name a single-machine operation needs |
+| `sila2_clients` | the clients by **machine id**, in the order the operation holds its machines: a mode's `devices[]` order, or — for a transport — its `transporter` followed by the devices at either **end of the route** |
+| `sila2_client` | the first of them — for a transport always its `transporter`; the one name a single-machine operation needs |
 
 ```yaml
 x-labcode:
@@ -275,10 +281,25 @@ x-labcode:
   parameters, so an input port of the same name would be silently overwritten by a client;
   a process that declares one is rejected at the front door (as a `_id` view field is,
   §4.1).
-- **One connection per operation**, opened before the code runs and closed after it — on
+- **A transport is handed all three of the machines it holds.** A transport activity
+  occupies the source device, the destination device *and* the transporter for its whole
+  body (`ofplang-schedule` SPECIFICATIONS §4.5), so all three are its to command — which is
+  what lets the move that needs a lid open be the move that opens it. Nothing else can be
+  using either instrument meanwhile, because the scheduler has given them both to this move.
+- **Connections last one operation**, opened before the code runs and closed after it — on
   any exit, including a `return` or an exception, and including a *later* connection
   failing after an earlier one opened. There is no pooling and no reconnection: reaching an
   instrument is assumed, and failing to is an ordinary operation failure naming the machine.
+  A machine that declares a `connection` is connected to whether or not the script uses it,
+  so the cost of an operation follows the machines it **holds**, not the ones it commands.
+- **A machine held without a client explains itself.** An operation may hold a machine it
+  cannot reach — a plain holding device declares no `connection` — and that machine is
+  absent from `sila2_clients` (`in`, `.get()` and iteration all say so). *Indexing* it is
+  different: it yields a stand-in that is **falsy**, so `if sila2_clients[id]:` reads as "is
+  there a client for it", and that fails the operation with **why** there is none
+  (`sila2_not_connected`) if the script commands it anyway. Indexing an id the operation
+  does not hold at all raises instead, naming what it does hold: that is a typo, and a
+  falsy stand-in would let it survive until something stranger happened later.
 - **Everything else is still the script's own.** The flavor supplies connections, nothing
   more: waiting for an observable command to finish (the standard `sila2` polling pattern)
   belongs in the code, as it does in a `raw` script.
