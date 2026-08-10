@@ -44,7 +44,9 @@ from labcode.extension import (
     FLAVOR_SILA2,
     device_connections,
     python_code,
+    script_endpoints,
     script_flavor,
+    spot_device,
     transporter_connections,
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
@@ -128,14 +130,7 @@ def make_code_resolver(environment: dict) -> Callable:
     return resolver
 
 
-def _spot_device(spot) -> str | None:
-    """The device a qualified spot (``<device>.<spot>``, schedule §8.2) belongs to."""
-    if not isinstance(spot, str):
-        return None
-    return spot.partition(".")[0] or None
-
-
-def _transport_machines(transport: dict, transporters: dict, devices: dict) -> list:
+def _transport_machines(transport: dict, transporters: dict, devices: dict, script) -> list:
     """The machines a transport holds, in the order their clients are opened: the
     **transporter first**, then the devices at either end of the route.
 
@@ -144,14 +139,21 @@ def _transport_machines(transport: dict, transporters: dict, devices: dict) -> l
     for its whole body (schedule SPECIFICATIONS §4.5). That is what makes a lid openable by
     the move that needs it open -- nothing else can be using the instrument meanwhile.
 
+    Whether the ends are actually connected to is the route's own to say (`endpoints`, §1.6),
+    and it says no unless asked: a move that only drives its transporter should pay for one
+    connection rather than three, and should not stop working because an instrument it merely
+    hands a plate to is switched off. A route that does not ask still *holds* both ends, so
+    they are reported as held-but-not-requested rather than left unexplained.
+
     The transporter stays first so that `CLIENT_LOCAL` -- the singular alias, which is "the
     first of them" (§1.6) -- remains the machine that does the moving, whatever else the
     route touches. Its id is looked up among the transporters and the endpoints' among the
     devices, so the two id spaces cannot shadow each other; a route whose ends are the same
     device is connected to once (`plan_clients`)."""
+    ends = devices if script_endpoints(script) else None
     return [
         (transport.get("transporter"), transporters),
-        *((_spot_device(transport.get(end)), devices) for end in ("from", "to")),
+        *((spot_device(transport.get(end)), ends) for end in ("from", "to")),
     ]
 
 
@@ -178,7 +180,7 @@ def make_transport_resolver(environment: dict) -> Callable:
         if code is not None:
             code = _flavored(
                 code, script,
-                _transport_machines(transport, transporters, devices),
+                _transport_machines(transport, transporters, devices, script),
                 f"transport {transporter!r} "
                 f"{transport.get('from')} -> {transport.get('to')}",
             )

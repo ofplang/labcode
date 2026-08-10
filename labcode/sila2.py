@@ -47,8 +47,14 @@ Target = tuple[str, str, int, bool]
 #: into the generated code; the value is the ``(error code, explanation)`` a script gets if
 #: it uses the machine anyway. Keys are kept short because they travel as literals.
 NO_CONNECTION = "no_connection"
+NOT_REQUESTED = "not_requested"
 UNAVAILABLE_REASONS: dict[str, tuple[str, str]] = {
     NO_CONNECTION: ("sila2_not_connected", "it declares no x-labcode.connection"),
+    NOT_REQUESTED: (
+        "sila2_endpoints_not_requested",
+        "this transport does not ask for the clients of the devices at either end of its "
+        "route; add `endpoints: true` to its x-labcode.script",
+    ),
 }
 #: For a reason this version does not know: report it as-is rather than losing it.
 UNAVAILABLE_FALLBACK_CODE = "sila2_not_connected"
@@ -239,7 +245,7 @@ def failing_code(reason: str) -> str:
 
 
 def plan_clients(
-    machines: Iterable[tuple[Any, Mapping[str, Connection]]],
+    machines: Iterable[tuple[Any, Mapping[str, Connection] | None]],
 ) -> tuple[list[tuple[str, Connection]], dict[str, str]]:
     """Split the machines an operation holds into the ones to open a client to and the ones
     there is no client for.
@@ -248,10 +254,12 @@ def plan_clients(
     a mode's ``devices[]``, or a transport's transporter followed by the devices at either
     end of its route. Each id is looked up in **its own** map, so a device and a transporter
     that happen to share an id cannot shadow each other, and the first mention of an id wins,
-    so a machine held twice is connected to once.
+    so a machine held twice is connected to once. A map of ``None`` says the operation holds
+    that machine but is **not asking to drive it** (a transport without `endpoints`), which
+    is a different fact from having no address for it, and is reported as one.
 
     Returns ``(targets, unavailable)``: what to connect, in that order, and ``{id: reason}``
-    for the rest. Holding a machine there is no address for is **not** an error -- an
+    for the rest. Holding a machine there is no client for is **not** an error -- an
     operation may occupy a device it does not drive -- so this is a filter, not a
     requirement; what an empty `targets` means is the caller's to decide."""
     targets: list[tuple[str, Connection]] = []
@@ -261,6 +269,9 @@ def plan_clients(
         if not isinstance(identifier, str) or not identifier or identifier in seen:
             continue
         seen.add(identifier)
+        if connections is None:
+            unavailable[identifier] = NOT_REQUESTED
+            continue
         connection = connections.get(identifier)
         if connection is None:
             unavailable[identifier] = NO_CONNECTION

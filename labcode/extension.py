@@ -34,6 +34,10 @@ FLAVORS: tuple[str, ...] = (FLAVOR_RAW, FLAVOR_SILA2)
 #: Closed key sets. An unknown key is a typo (or a feature this version does not have),
 #: and silently ignoring it is how a misspelled `flavour:` becomes a mystery at run time.
 SCRIPT_KEYS: tuple[str, ...] = ("language", "code", "flavor")
+#: A script on a **transport route** may say one thing more: whether it wants to command the
+#: devices at either end of the route, not just the transporter (§1.6). A process mode has no
+#: use for it -- its machines are the ones it lists -- so it is not allowed there.
+TRANSPORT_SCRIPT_KEYS: tuple[str, ...] = (*SCRIPT_KEYS, "endpoints")
 #: `x-labcode` on a process mode or a transport route -- the places a script lives.
 SCRIPT_SITE_KEYS: tuple[str, ...] = ("script",)
 #: `x-labcode` on a device or a transporter -- how to reach it, and whether to check.
@@ -65,6 +69,26 @@ def script_flavor(script: Any) -> str:
         if isinstance(flavor, str):
             return flavor
     return FLAVOR_RAW
+
+
+#: Whether a transport script is handed the clients of the devices at either end of its
+#: route. **Off unless asked for**: a transport that only drives its transporter should pay
+#: for one connection, not three, and should not stop working because an instrument it merely
+#: passes a plate to is switched off. Asking is per route, because needing to open a lid is a
+#: property of the move, not of the lab.
+DEFAULT_ENDPOINTS = False
+
+
+def script_endpoints(script: Any) -> bool:
+    """Whether an ``x-labcode.script`` on a transport route asks for its endpoint clients.
+
+    A malformed value reads as the default here -- the dialect validator rejects it at the
+    front door, so it never reaches execution."""
+    if isinstance(script, dict):
+        endpoints = script.get("endpoints")
+        if isinstance(endpoints, bool):
+            return endpoints
+    return DEFAULT_ENDPOINTS
 
 
 def python_code(script: Any) -> str | None:
@@ -231,6 +255,18 @@ def declared_probe(extension: Any) -> dict[str, Any]:
         return {}
     declared, _errors = parse_probe(raw)
     return declared
+
+
+def spot_device(spot: Any) -> str | None:
+    """The device a qualified spot (``<device>.<spot>``, schedule SPECIFICATIONS §8.2)
+    belongs to, or None when there is no name to take.
+
+    A transport route names its ends by spot, but a client is opened per *machine*, so both
+    the validator and the backend have to take the device off the front -- and they have to
+    agree on how."""
+    if not isinstance(spot, str):
+        return None
+    return spot.partition(".")[0] or None
 
 
 def device_connections(environment: dict) -> dict[str, Connection]:

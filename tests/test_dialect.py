@@ -487,6 +487,62 @@ def test_sila2_transport_does_not_need_its_ends_to_be_connected():
     assert result.ok, result.errors
 
 
+# -- asking for the clients of the devices at either end (`endpoints`) ----------------
+
+
+def _endpoints_env(endpoints, *, flavor: str = "sila2", connected: bool = True) -> dict:
+    env = _transport_env({
+        "transporter": "arm", "from": "station.slot1", "to": "reader.stage",
+        "x-labcode": _sila2_script(flavor=flavor, endpoints=endpoints),
+    })
+    env["transporters"] = [{"id": "arm", "x-labcode": {"connection": CONNECTION}}]
+    reader = {"x-labcode": {"connection": CONNECTION}} if connected else {}
+    env["devices"] = [_device("station", spots=["slot1"]), _device("reader", **reader)]
+    return env
+
+
+def test_a_transport_may_ask_for_its_endpoint_clients():
+    result = validate_dialect({}, _endpoints_env(True))
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_endpoints_false_states_the_default():
+    result = validate_dialect({}, _endpoints_env(False))
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_endpoints_must_be_a_boolean():
+    result = validate_dialect({}, _endpoints_env("yes"))
+    assert not result.ok
+    assert any("endpoints must be a boolean" in e for e in result.errors)
+
+
+def test_a_raw_script_cannot_ask_for_clients_it_will_not_be_given():
+    # A raw script is handed no clients at all, so the request cannot be honoured -- and its
+    # author is expecting something that will not happen.
+    result = validate_dialect({}, _endpoints_env(True, flavor="raw"))
+    assert not result.ok
+    assert any("only a 'sila2' script is handed clients" in e for e in result.errors)
+
+
+def test_endpoints_with_no_addressable_end_is_a_warning():
+    # The route still works through its transporter, and an environment written before its
+    # instruments have addresses is a legitimate intermediate state -- as with `probe`.
+    result = validate_dialect({}, _endpoints_env(True, connected=False))
+    assert result.ok, result.errors
+    assert any("neither end of the route" in w for w in result.warnings)
+
+
+def test_a_process_mode_may_not_ask_for_endpoints():
+    # A mode's machines are the ones it lists; there are no ends of a route to ask about.
+    result = validate_dialect({}, _env({"id": "v0", "devices": ["reader"],
+                                        "x-labcode": _sila2_script(endpoints=True)}))
+    assert not result.ok
+    assert any("unknown key 'endpoints'" in e for e in result.errors)
+
+
 def test_sila2_transport_naming_an_undeclared_transporter_says_so():
     env = _transport_env({"transporter": "arm", "from": "a", "to": "b",
                           "x-labcode": _sila2_script()})

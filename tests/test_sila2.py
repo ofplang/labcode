@@ -233,6 +233,18 @@ def test_plan_does_not_repeat_a_machine():
     assert targets == [("arm", ARM)]
 
 
+def test_plan_distinguishes_not_asked_for_from_no_address():
+    # A transport holds both ends whether or not it asks to drive them, and the two
+    # reasons a machine has no client are different facts about the environment.
+    targets, unavailable = sila2.plan_clients(
+        [("arm", TRANSPORTERS), ("plateloc", None), ("station", None)]
+    )
+    assert targets == [("arm", ARM)]
+    assert unavailable == {
+        "plateloc": sila2.NOT_REQUESTED, "station": sila2.NOT_REQUESTED,
+    }
+
+
 def test_plan_of_nothing_connectable_has_no_targets():
     targets, unavailable = sila2.plan_clients(_held("station"))
     assert targets == []
@@ -261,6 +273,19 @@ def test_using_a_machine_with_no_client_says_why(fake_connect):
     assert "station" in str(caught.value)
     assert "x-labcode.connection" in str(caught.value)  # what to fix, not just what broke
     assert fake_connect[0].closed  # and the clients that did open still closed
+
+
+def test_a_machine_the_route_did_not_ask_for_says_what_to_add(fake_connect):
+    # An off-by-default feature that says only "there is no client" cannot be found. The
+    # message has to name the thing to write.
+    wrapped = sila2.wrap(
+        "sila2_clients['cycler'].Lid.OpenLid()", [("arm", ARM)],
+        unavailable={"cycler": sila2.NOT_REQUESTED},
+    )
+    with pytest.raises(DeviceComputationError) as caught:
+        run_python_script(wrapped, {})
+    assert caught.value.code == "sila2_endpoints_not_requested"
+    assert "endpoints: true" in str(caught.value)
 
 
 def test_a_machine_with_no_client_is_falsy(fake_connect):

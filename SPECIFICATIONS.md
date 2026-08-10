@@ -49,6 +49,10 @@ still validates and schedules as plain v0. Only labcode interprets it.
     commands alone and labcode supplies the clients. `raw` is the whole function body,
     written by its author — the general escape hatch, and what a script that connects for
     itself (or speaks something other than SiLA2) uses.
+  - `endpoints` (**transport routes only**, optional, default `false`): MUST be a boolean —
+    whether this move is also given clients for the devices at either **end** of its route,
+    not only its `transporter` (§1.6). A process mode may not declare it: a mode's machines
+    are the ones it lists.
 
 **Unknown keys are an error** — in `x-labcode` at every position, and in the mappings it
 holds. A key this version does not know is either a typo or a feature it does not have;
@@ -160,11 +164,14 @@ a script uses it.
 - a transport script with `flavor: sila2` requires that route's `transporter` to declare
   one.
 
-A transport is also handed the clients of the devices at either **end** of its route
-(§1.6), but those are *not* required to declare a `connection`: a route through a plain
-holding location is ordinary, and the end without an address is simply not connected to.
-The transporter is the one that must be reachable, because it is the machine that does the
-moving — and the one `sila2_client` names.
+A transport that declares `endpoints: true` is also handed the clients of the devices at
+either **end** of its route (§1.6), but those are *not* required to declare a `connection`:
+a route through a plain holding location is ordinary, and the end without an address is
+simply not connected to (a **warning** when *neither* end has one, since then the request
+does nothing). The transporter is the one that must be reachable, because it is the machine
+that does the moving — and the one `sila2_client` names. Asking a `raw` script for endpoint
+clients is an **error**: a raw script is handed no clients at all, so the request cannot be
+honoured.
 
 Declaring a `connection` on a device no script connects to is allowed — it is how an
 environment is prepared before the scripts that use it are written.
@@ -264,7 +271,7 @@ of the input ports of §1.2 (or the transport locals of §1.3), the code sees:
 
 | name | meaning |
 |---|---|
-| `sila2_clients` | the clients by **machine id**, in the order the operation holds its machines: a mode's `devices[]` order, or — for a transport — its `transporter` followed by the devices at either **end of the route** |
+| `sila2_clients` | the clients by **machine id**, in the order the operation holds its machines: a mode's `devices[]` order, or — for a transport — its `transporter`, followed by the devices at either **end of the route** when it declares `endpoints: true` |
 | `sila2_client` | the first of them — for a transport always its `transporter`; the one name a single-machine operation needs |
 
 ```yaml
@@ -281,11 +288,39 @@ x-labcode:
   parameters, so an input port of the same name would be silently overwritten by a client;
   a process that declares one is rejected at the front door (as a `_id` view field is,
   §4.1).
-- **A transport is handed all three of the machines it holds.** A transport activity
-  occupies the source device, the destination device *and* the transporter for its whole
-  body (`ofplang-schedule` SPECIFICATIONS §4.5), so all three are its to command — which is
-  what lets the move that needs a lid open be the move that opens it. Nothing else can be
-  using either instrument meanwhile, because the scheduler has given them both to this move.
+- **A transport may be handed all three of the machines it holds** — `endpoints: true`. A
+  transport activity occupies the source device, the destination device *and* the transporter
+  for its whole body (`ofplang-schedule` SPECIFICATIONS §4.5), so all three are its to
+  command: that is what lets the move that needs a lid open be the move that opens it, and
+  nothing else can be using either instrument meanwhile, because the scheduler has given them
+  both to this move.
+
+  It is **off unless asked for**, per route. A move that drives nothing but its transporter
+  should pay for one connection rather than three, and should not begin to fail because an
+  instrument it merely hands a plate to is switched off — while needing to open a lid is a
+  property of the move, not of the lab. A route that does not ask still *holds* both ends, so
+  reaching for one is answered with what to add rather than with silence.
+
+  ```yaml
+  transports:
+    - transporter: arm
+      from: plateloc.stage
+      to: thermal_cycler.block
+      duration: 8
+      x-labcode:
+        script:
+          language: python
+          flavor: sila2
+          endpoints: true        # ...so the lid can be opened before the plate arrives
+          code: |
+            from labcode.sila2_commands import settle
+
+            cycler = sila2_clients["thermal_cycler"].AutomatedThermalCyclerController
+            settle(cycler.OpenLid(), "OpenLid")
+            arm = sila2_client.TrolleyArmProvider   # the transporter: still the first client
+            arm.Pick(LocationSpecifier="plateloc.stage")
+            arm.Place(LocationSpecifier="thermal-cycler.block")
+  ```
 - **Connections last one operation**, opened before the code runs and closed after it — on
   any exit, including a `return` or an exception, and including a *later* connection
   failing after an earlier one opened. There is no pooling and no reconnection: reaching an
@@ -297,9 +332,10 @@ x-labcode:
   absent from `sila2_clients` (`in`, `.get()` and iteration all say so). *Indexing* it is
   different: it yields a stand-in that is **falsy**, so `if sila2_clients[id]:` reads as "is
   there a client for it", and that fails the operation with **why** there is none
-  (`sila2_not_connected`) if the script commands it anyway. Indexing an id the operation
-  does not hold at all raises instead, naming what it does hold: that is a typo, and a
-  falsy stand-in would let it survive until something stranger happened later.
+  (`sila2_not_connected`, or `sila2_endpoints_not_requested` for an end of a route that did
+  not ask for it) if the script commands it anyway. Indexing an id the operation does not
+  hold at all raises instead, naming what it does hold: that is a typo, and a falsy stand-in
+  would let it survive until something stranger happened later.
 - **Everything else is still the script's own.** The flavor supplies connections, nothing
   more: waiting for an observable command to finish (the standard `sila2` polling pattern)
   belongs in the code, as it does in a `raw` script.

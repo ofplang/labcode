@@ -36,6 +36,7 @@ Three kinds of check:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +51,7 @@ from labcode.extension import (
     SCRIPT_SITE_KEYS,
     TLS_INSECURE_NOT_DECLARED,
     TLS_UNSUPPORTED,
+    TRANSPORT_SCRIPT_KEYS,
     find_extensions,
     format_path,
     is_supported_position,
@@ -57,6 +59,7 @@ from labcode.extension import (
     parse_connection,
     parse_probe,
     script_flavor,
+    spot_device,
     unknown_key_messages,
 )
 from labcode.objectid import RESERVED_ID, reserved_collisions
@@ -117,7 +120,7 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
             "has no effect (add `enabled: true`, and a connection to the machines to check)"
         )
     _validate_processes(workflow, environment, devices, errors, warnings)
-    _validate_transports(environment, transporters, errors, warnings)
+    _validate_transports(environment, transporters, devices, errors, warnings)
 
     return DialectResult(ok=not errors, errors=errors, warnings=warnings)
 
@@ -257,15 +260,20 @@ def _validate_nodes(
 # -- scripts --------------------------------------------------------------------
 
 
-def _validate_script(script: Any, label: str, errors: list) -> bool:
+def _validate_script(
+    script: Any, label: str, errors: list, allowed: Sequence[str] = SCRIPT_KEYS
+) -> bool:
     """Shape-check an ``x-labcode.script``. Returns False if it is not a mapping at all
-    (nothing further can be said about it)."""
+    (nothing further can be said about it).
+
+    `allowed` is the closed key set for *where* this script sits: a transport route may say
+    one thing a process mode may not (`TRANSPORT_SCRIPT_KEYS`)."""
     if not isinstance(script, dict):
         errors.append(f"{label}: x-labcode.script must be a mapping")
         return False
     errors.extend(
         f"{label}: {message}"
-        for message in unknown_key_messages(script, "x-labcode.script", SCRIPT_KEYS)
+        for message in unknown_key_messages(script, "x-labcode.script", allowed)
     )
     language = script.get("language")
     if language != "python":
@@ -398,12 +406,16 @@ def _transport_label(transport: dict) -> str:
 
 
 def _validate_transports(
-    environment: dict, transporters: _NodeIndex, errors: list, warnings: list
+    environment: dict,
+    transporters: _NodeIndex,
+    devices: _NodeIndex,
+    errors: list,
+    warnings: list,
 ) -> None:
     """Validate the ``x-labcode.script`` on each environment ``transports[]`` route (a
-    transport script is side-effect only -- no ports, no outputs -- so only its shape and
-    its connection are checked). A real move (from != to) with no script runs as a
-    bookkeeping-only no-op move (no device command), which is warned."""
+    transport script is side-effect only -- no ports, no outputs -- so only its shape, its
+    connection and its `endpoints` request are checked). A real move (from != to) with no
+    script runs as a bookkeeping-only no-op move (no device command), which is warned."""
     for transport in environment.get("transports") or []:
         if not isinstance(transport, dict):
             continue
@@ -423,10 +435,47 @@ def _validate_transports(
         script = extension.get("script")
         if script is None:
             continue
-        if not _validate_script(script, label, errors):
+        if not _validate_script(script, label, errors, TRANSPORT_SCRIPT_KEYS):
             continue
+        _check_transport_endpoints(transport, script, label, devices, errors, warnings)
         if script_flavor(script) == FLAVOR_SILA2:
             _check_transport_connection(transport, label, transporters, errors)
+
+
+def _check_transport_endpoints(
+    transport: dict, script: dict, label: str, devices: _NodeIndex,
+    errors: list, warnings: list,
+) -> None:
+    """Check a route's ``endpoints`` request: that it is a boolean, that the script can
+    actually receive clients, and that there is a client to receive.
+
+    Asking a `raw` script for endpoint clients is an **error**: a raw script is handed no
+    clients at all (§1.6), so the request cannot be honoured and the author expects
+    something that will not happen. Asking when neither end has an address is a **warning**
+    -- the route still works through its transporter, and an environment written before its
+    instruments have addresses is a legitimate intermediate state (as with `probe`)."""
+    endpoints = script.get("endpoints")
+    prefix = f"{label}: x-labcode.script.endpoints"
+    if endpoints is None:
+        return
+    if not isinstance(endpoints, bool):
+        errors.append(f"{prefix} must be a boolean (got {endpoints!r})")
+        return
+    if not endpoints:  # an explicit false states the default; nothing more to say
+        return
+    if script_flavor(script) != FLAVOR_SILA2:
+        errors.append(
+            f"{prefix} is true, but the script's flavor is "
+            f"{script_flavor(script)!r}: only a 'sila2' script is handed clients (§1.6)"
+        )
+        return
+    ends = [spot_device(transport.get(end)) for end in ("from", "to")]
+    named = [device for device in ends if device is not None]
+    if not any(device in devices.with_connection for device in named):
+        warnings.append(
+            f"{prefix} is true, but neither end of the route ({', '.join(named)}) declares "
+            f"an x-labcode.connection; the script will be given its transporter only"
+        )
 
 
 def _check_transport_connection(
