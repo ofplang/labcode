@@ -6,9 +6,9 @@ boundary:
         _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
   outputs:
     tape_left:
-      view: 1189
+      view: 1186
     cycle_count:
-      view: 19
+      view: 22
     elapsed_time:
       view: 00:00:10
     plate:

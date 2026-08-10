@@ -30,16 +30,18 @@ Prerequisites:
   * `sila2` is installed in *this* interpreter's environment -- labcode runs each script in a
     child process launched with `sys.executable`, so the client library has to be importable
     there (`uv sync --extra sila2`, or `pip install 'labcode[sila2]'`);
-  * the world is at t=0, i.e. one plate on `station.slot1`. The run is a round trip and puts
-    the plate back, so repeated runs need no intervention
-    (`curl -X POST http://localhost:8001/reseed` restores it otherwise).
+  * one plate is on `station.slot1`. The run is a round trip and puts the plate back, so
+    repeated runs need no intervention (`curl -X POST http://localhost:8001/reseed` restores
+    it otherwise).
 
-    🔴 One failure mode is specific to this example. The thermal cycler's lid and the
-    centrifuge's door are closed and reopened *inside* their process scripts, because a
-    transport script is given a client for its transporter only and so cannot open the
-    instrument it is delivering to. A run that dies between the close and the reopen leaves
-    that spot inaccessible, and the next run's transport into it fails with
-    `location_locked`. Reseeding clears it.
+    No particular lid or door state is needed. The environment treats an instrument as
+    closed at rest and each transport opens what it must (`endpoints: true`, §1.6), so the
+    circuit starts equally well from the lab's all-open t=0 and from the state a previous run
+    leaves behind -- which is what makes a second run evidence that the transports really can
+    open an instrument.
+
+    🔴 What a *failed* run can leave behind is the plate inside a closed instrument. It is an
+    operator's to retrieve, as for any run that stops half way; reseeding is the shortcut.
 
 Exit code 0 means every check passed; anything else is a failure, so this is usable as a
 check rather than a demo.

@@ -20,7 +20,7 @@ arc:
     - Peel
     port: plate
 start: 0
-end: 1
+end: 2
 moved:
   view:
     _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
@@ -36,8 +36,8 @@ input_spots:
   plate: seal_remover.stage
 output_spots:
   plate: seal_remover.stage
-start: 1
-end: 13
+start: 2
+end: 14
 inputs:
   plate:
     view:
@@ -47,7 +47,7 @@ outputs:
     view:
       _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
   tape_left:
-    view: 1189
+    view: 1186
 ---
 kind: transport
 from_spot: seal_remover.stage
@@ -62,8 +62,8 @@ arc:
     node:
     - Seal
     port: plate
-start: 13
-end: 14
+start: 14
+end: 16
 moved:
   view:
     _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
@@ -79,8 +79,8 @@ input_spots:
   plate: plateloc.stage
 output_spots:
   plate: plateloc.stage
-start: 14
-end: 31
+start: 16
+end: 33
 inputs:
   plate:
     view:
@@ -90,7 +90,7 @@ outputs:
     view:
       _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
   cycle_count:
-    view: 19
+    view: 22
 ---
 kind: transport
 from_spot: plateloc.stage
@@ -105,8 +105,8 @@ arc:
     node:
     - ThermalCycle
     port: plate
-start: 31
-end: 32
+start: 33
+end: 40
 moved:
   view:
     _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
@@ -122,8 +122,8 @@ input_spots:
   plate: thermal_cycler.block
 output_spots:
   plate: thermal_cycler.block
-start: 32
-end: 54
+start: 40
+end: 56
 inputs:
   plate:
     view:
@@ -148,8 +148,8 @@ arc:
     node:
     - Rotate
     port: plate
-start: 54
-end: 55
+start: 56
+end: 72
 moved:
   view:
     _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
@@ -165,8 +165,8 @@ input_spots:
   plate: centrifuge.deck
 output_spots:
   plate: centrifuge.deck
-start: 55
-end: 85
+start: 72
+end: 99
 inputs:
   plate:
     view:
@@ -188,12 +188,12 @@ arc:
   to:
     node: []
     port: plate
-start: 85
-end: 87
+start: 99
+end: 110
 moved:
   view:
     _id: 2fbeb516-ba67-4198-9ba6-7cd664e799c8
 ---
 final: true
-now: 87
+now: 110
 outcome: completed

@@ -265,7 +265,7 @@ This is the labcode counterpart of the reference lab's own `samples/run_roundabo
 one difference that is the point of it: there, a script drives the circuit directly; here,
 labcode schedules it and dispatches each step, and each script only says what one step does.
 
-### Two things this example has to work around
+### Two things worth reading the environment for
 
 **Hyphens.** The lab's locations are `seal-remover.stage` and `thermal-cycler.block`, which no
 v0 identifier can spell. The environment names those devices `seal_remover` and
@@ -291,17 +291,42 @@ Only transport scripts face this, because only they name spots. The lab is *not*
 suit labcode: the dependency runs one way, and the lab's world model is not labcode's to edit.
 
 **Lids and doors.** In the lab's world model a closed lid or door makes that spot inaccessible,
-and an item cannot be moved into or out of an inaccessible spot. The natural place to open the
-thermal cycler is the transport that delivers the plate to it — but a transport script is given
-a client for its **transporter only**, not for the devices at either end of the route, so it
-cannot issue `OpenLid` at all. Each process script therefore does close → operate → open,
-leaving the instrument as it found it.
+and an item cannot be moved into or out of an inaccessible spot. So the transport that delivers
+the plate is what opens the instrument: three of the five routes declare `endpoints: true` and
+are handed clients for the devices at either end as well as for the arm (§1.6). That is sound
+because the scheduler has already given the move both instruments for its whole duration —
+nothing else can be using them meanwhile.
 
-That works because a spot's `accessible` defaults to true and the lab's seed closes nothing, so
-everything is open at t=0, and because every script here reopens what it closed. Its limit is
-worth knowing: **a run that dies between the close and the reopen leaves the spot closed**, and
-the next run's transport into that instrument fails with `location_locked`. Reseeding clears
-it. This is a workaround for what a transport script is handed, not the intended shape.
+The convention the environment follows is that **an instrument is closed at rest**: a transport
+opens what it must to pick and to place and closes the source it emptied, and a process closes
+the instrument to work and leaves it closed. Delivering the plate to the thermal cycler
+therefore reads as: the transport opens the lid and places the plate; `thermal_cycle` closes it,
+runs, and leaves it closed; the next transport opens it, takes the plate out, and closes it
+again.
+
+```yaml
+x-labcode:
+  script:
+    flavor: sila2
+    endpoints: true
+    code: |
+      from labcode.sila2_commands import settle
+
+      cycler = sila2_clients["thermal_cycler"].AutomatedThermalCyclerController
+      settle(cycler.OpenLid(), "OpenLid")
+      arm = sila2_client.TrolleyArmProvider      # the transporter: still the first client
+      arm.Pick(LocationSpecifier="plateloc.stage")
+      arm.Place(LocationSpecifier="thermal-cycler.block")
+```
+
+Closed-at-rest is what a real instrument does, and it is what makes this example *check*
+something rather than merely work. The lab starts with everything open, so the first run's
+`OpenLid` is a no-op — but every run after it starts with the cycler and the centrifuge closed
+and gets nowhere unless the transports really can open them. (`OpenLid` / `CloseLid` set the
+world's accessibility outright rather than toggling it, so calling one that is already true
+costs nothing.) The thing to know is that the plate is inside a closed instrument for part of
+the circuit, so a run that dies there leaves it there — an operator's job to retrieve, or a
+reseed, as for any run that fails half way.
 
 ### Run it
 
@@ -309,22 +334,25 @@ it. This is a workaround for what a transport script is handed, not the intended
 python examples/run_sila2_plate_cycle.py
 ```
 
-Same prerequisites as `sila2_seal` (the lab up, `sila2` importable, the world at t=0), and the
-same conventions: exit code 0 means every check passed, and `--artifacts DIR` keeps the run's
-status, observation and result boundary.
+Same prerequisites as `sila2_seal` (the lab up, `sila2` importable, one plate on
+`station.slot1`), and the same conventions: exit code 0 means every check passed, and
+`--artifacts DIR` keeps the run's status, observation and result boundary. It needs no
+particular lid or door state to start from: the transports open what they need.
 
 Verified against both of the reference lab's timing profiles at `--seconds-per-tick 1.0`.
 Against `command_durations.realistic.yaml` — the profile the environment's durations are
-measured on — the circuit takes a makespan of about 89, and each instrument step lands on its
+measured on — the circuit takes a makespan of about 110, and each step lands within its
 declared duration; against the default profile (which waits for nothing) every op finishes
 early and the run still completes.
 
 Those durations are the **measured operation times, not the instrument's**. An op also costs
-labcode a child process and a SiLA2 client (which fetches every Feature definition), and one
-poll interval per `settle` that finishes mid-interval — together 2–3 s plus ~1 s per settle.
-`thermal_cycle` shows it most: 14 s of instrument time becomes 22, because all six of its
-commands are short. Declaring the instrument's time alone would under-run every op, and the
-scheduler would keep trying to dispatch a successor onto a device still finishing.
+labcode a child process (~2 s), a SiLA2 client per machine it connects to (~1 s each, since
+building one fetches every Feature definition), and one poll interval per `settle` that
+finishes mid-interval. Both variable parts show: `thermal_cycle` turns 10 s of instrument time
+into 17 because all five of its commands are short, and the cycler → centrifuge move costs 17
+for 11 s of instrument time, opening two instruments and closing one across three clients.
+Declaring the instrument's time alone would under-run every op, and the scheduler would keep
+trying to dispatch a successor onto a device still finishing.
 
 ### Produce the outputs
 
@@ -352,7 +380,7 @@ python examples/render_sila2_plate_cycle.py
 It is a producer, not a check: it asserts nothing, and `run_sila2_plate_cycle.py` is what says
 whether the example still works. Unlike `render_plate_line.py` it needs the lab, since its
 scripts issue real commands. The committed copies were produced on the realistic profile
-(makespan 89); every op runs out-of-process on a wall clock against real servers, so the exact
+(makespan 110); every op runs out-of-process on a wall clock against real servers, so the exact
 times vary between runs while the sequence, the identities and the produced values do not.
 
 ### Run every SiLA2 example
@@ -362,6 +390,7 @@ python examples/run_all_sila2_examples.py
 ```
 
 Runs each environment above in turn — both `sila2_seal` environments and `sila2_plate_cycle`
-(they are round trips that leave every instrument open, so they follow one another without
-intervention) — prints a pass/fail summary, and exits non-zero if any failed. Only the examples
+(they are round trips that put the plate back where it started, and each opens whatever it
+needs open, so they follow one another without intervention) — prints a pass/fail summary, and
+exits non-zero if any failed. Only the examples
 that need the lab are included; `render_plate_line.py` needs nothing but Python.
