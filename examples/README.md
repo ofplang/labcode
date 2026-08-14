@@ -168,6 +168,18 @@ arm, so there is nothing to route around, and what a stopped lab should produce 
 instrument command failing where it was issued. `lc run --no-probe` turns probing off for a
 run without editing the environment.
 
+### If a machine stops answering *mid-operation*
+
+Probing catches a machine that is not there; it does not catch one that accepted a command
+and never came back. That is what the **operation timeout** is for
+([`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.8): every operation has a real-seconds
+deadline (7200 s by default, declared lab-wide at the environment root as
+`x-labcode.op_timeout`), and one that passes it is stopped and failed with the reason
+`op_timeout` — a run that ends with a status document and a reason instead of one that
+polls forever. A script that knows its own commands should still bound them itself with
+`settle(..., timeout=...)`: it fires first and can say *which command* hung. `lc run
+--op-timeout SECONDS` / `--no-op-timeout` change the outer limit for a single run.
+
 ### Prerequisites
 
 **Verified against [ofplang-sila2-backend](https://github.com/kaizu/sila2-demo) v0.3.0 (commit

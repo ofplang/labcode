@@ -18,11 +18,16 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from typing import Literal
 
 from ofplang.run.app import RunResult
 from ofplang.run.runner import RollingRunner, RunnerError, load_document
 
-from labcode.backend import DEFAULT_SECONDS_PER_TICK, labcode_backend_factory
+from labcode.backend import (
+    DEFAULT_SECONDS_PER_TICK,
+    FROM_ENVIRONMENT,
+    labcode_backend_factory,
+)
 from labcode.idgen import IdGenerator, SeededUuid4Generator
 from labcode.objectid import inject_boundary_ids, inject_id_field, reserved_collisions
 from labcode.probe import CadenceReporter, ChangeReporter, Prober
@@ -35,9 +40,11 @@ class LabcodeRunner(RollingRunner):
     runner reads it itself). Object types are rewritten to declare ``_id``, the boundary's
     Object inputs are minted, and the labcode backend is wired with a shared `IdGenerator`
     (default: reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
-    `sleep` configure the wall-clock backend and `probe` / `prober` /
-    `on_availability_change` its availability probing (`labcode.probe`); any other keyword
-    is forwarded to `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`).
+    `sleep` configure the wall-clock backend, `probe` / `prober` /
+    `on_availability_change` its availability probing (`labcode.probe`), and `op_timeout`
+    how long one operation may run before it is stopped and failed (default: whatever the
+    environment's ``x-labcode.op_timeout`` says); any other keyword is forwarded to
+    `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`).
 
     **`running_task_margin` defaults to the poll interval here**, not to the upstream 0.
     The margin is how far ahead of *now* a still-running operation is assumed to finish
@@ -64,6 +71,7 @@ class LabcodeRunner(RollingRunner):
         prober: Prober | None = None,
         on_availability_change: ChangeReporter | None = None,
         on_cadence_slip: CadenceReporter | None = None,
+        op_timeout: float | None | Literal["environment"] = FROM_ENVIRONMENT,
         poll_interval: int | None = 1,
         running_task_margin: int | None = None,
         **rolling_kwargs,
@@ -91,6 +99,7 @@ class LabcodeRunner(RollingRunner):
             prober=prober,
             on_availability_change=on_availability_change,
             on_cadence_slip=on_cadence_slip,
+            op_timeout=op_timeout,
         )
         # A margin of at least one tick, defaulting to the poll interval (see the class
         # docstring). An explicit value is honoured as given -- including 0, for a caller

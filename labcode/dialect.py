@@ -57,6 +57,7 @@ from labcode.extension import (
     is_supported_position,
     merge_probe,
     parse_connection,
+    parse_op_timeout,
     parse_probe,
     script_flavor,
     spot_device,
@@ -143,8 +144,8 @@ def _validate_positions(environment: dict, errors: list) -> None:
 
 
 def _validate_root(environment: dict, errors: list) -> dict:
-    """Shape-check the environment root's ``x-labcode`` -- document-wide probing defaults,
-    and nothing else (an address belongs to the machine that has it). Returns the probe
+    """Shape-check the environment root's ``x-labcode`` -- document-wide defaults, and
+    nothing else (an address belongs to the machine that has it). Returns the probe
     fields it declares, for the effective policies below."""
     extension = environment.get(EXTENSION_KEY)
     if extension is None:
@@ -156,6 +157,11 @@ def _validate_root(environment: dict, errors: list) -> dict:
         f"environment root: {message}"
         for message in unknown_key_messages(extension, "x-labcode", ROOT_KEYS)
     )
+    # The operation timeout is one value for the whole lab, so it lives here and nowhere
+    # else -- a mode that needs a different wait says so inside its own script.
+    if "op_timeout" in extension:
+        _value, messages = parse_op_timeout(extension["op_timeout"])
+        errors.extend(f"environment root: x-labcode.{message}" for message in messages)
     raw = extension.get("probe")
     if raw is None:
         return {}

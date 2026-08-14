@@ -19,6 +19,7 @@ from labcode.backend import (
     make_code_resolver,
     make_transport_resolver,
 )
+from labcode.extension import DEFAULT_OP_TIMEOUT
 
 WF_DEF = {"script": {"language": "python", "code": "WF"}}
 
@@ -82,6 +83,57 @@ def test_factory_builds_labcode_backend():
     assert isinstance(backend, LabcodeBackend)
     assert isinstance(backend, SubprocessBackend)
     backend.close()
+
+
+# -- the operation timeout: three layers, outermost first ----------------------
+
+
+def _timeout_env(**extension) -> dict:
+    env = {
+        "time": {"unit": "second"},
+        "devices": [{"id": "rack", "spots": ["slot"]}],
+        "transporters": [{"id": "arm"}],
+        "transports": [],
+        "processes": {},
+        "objective": {"kind": "makespan"},
+    }
+    if extension:
+        env["x-labcode"] = extension
+    return env
+
+
+def _built(env: dict, **kw) -> float | None:
+    backend = labcode_backend_factory(seconds_per_tick=0.001, **kw)(env)
+    try:
+        return backend._op_timeout
+    finally:
+        backend.close()
+
+
+def test_a_lab_that_says_nothing_still_gets_a_limit():
+    # The point of the default: the hang that stops a run silently is exactly the one
+    # nobody thought to bound.
+    assert _built(_timeout_env()) == DEFAULT_OP_TIMEOUT
+
+
+def test_the_environment_sets_the_limit():
+    assert _built(_timeout_env(op_timeout=120)) == 120.0
+
+
+def test_the_environment_can_ask_to_wait_forever():
+    # A declared null is a decision on the record, unlike saying nothing.
+    assert _built(_timeout_env(op_timeout=None)) is None
+
+
+def test_the_caller_overrides_the_environment():
+    assert _built(_timeout_env(op_timeout=120), op_timeout=30.0) == 30.0
+    assert _built(_timeout_env(op_timeout=120), op_timeout=None) is None
+
+
+def test_a_malformed_limit_falls_back_to_the_default():
+    # The dialect front door rejects it; if one reaches execution anyway, falling back to
+    # the default is the safe reading -- silently meaning "no limit" is not.
+    assert _built(_timeout_env(op_timeout="soon")) == DEFAULT_OP_TIMEOUT
 
 
 # -- transport resolution / dispatch -------------------------------------------

@@ -43,7 +43,7 @@ SCRIPT_SITE_KEYS: tuple[str, ...] = ("script",)
 #: `x-labcode` on a device or a transporter -- how to reach it, and whether to check.
 NODE_KEYS: tuple[str, ...] = ("connection", "probe")
 #: `x-labcode` at the environment root -- document-wide defaults, and nothing else.
-ROOT_KEYS: tuple[str, ...] = ("probe",)
+ROOT_KEYS: tuple[str, ...] = ("probe", "op_timeout")
 CONNECTION_KEYS: tuple[str, ...] = ("kind", "host", "port", "insecure")
 PROBE_KEYS: tuple[str, ...] = ("enabled", "timeout", "interval")
 
@@ -166,6 +166,64 @@ def parse_connection(raw: Any) -> tuple[Connection | None, list[str]]:
         kind=cast(str, kind),
     )
     return connection, []
+
+
+# -- operation timeout ----------------------------------------------------------
+
+#: How long one operation may run before labcode gives up on it, in **real seconds**.
+#:
+#: Deliberately generous, and deliberately finite. Its job is not to notice a slow
+#: instrument -- a script that knows what it is waiting for should say so with its own
+#: `labcode.sila2_commands.settle(timeout=...)`, which can name the command that hung.
+#: This is the outer net: it catches the hangs no script is watching for (a `raw` script,
+#: a forgotten `settle`, a stall while connecting), and it exists at all because without
+#: it a silent instrument stops a run with no status document and no reason written.
+#:
+#: It is **one value for the whole lab**, not a per-machine one: the fine-grained waits
+#: belong to the scripts, so the value here only has to clear the longest operation the
+#: lab legitimately runs. It is twice the `settle` default so that when both apply, the
+#: inner wait -- which can say *which command* did not answer -- is the one that fires.
+DEFAULT_OP_TIMEOUT = 7200.0
+
+
+def parse_op_timeout(raw: Any) -> tuple[float | None, list[str]]:
+    """Parse a **declared** ``x-labcode.op_timeout``: seconds, or None for `null` (wait
+    forever). Returns ``(value, errors)``.
+
+    Only call this when the key is present: a declared `null` and no declaration at all
+    mean different things (wait forever / use the default), and a mapping cannot tell
+    them apart once the value is out."""
+    if raw is None:
+        return None, []
+    if (
+        isinstance(raw, bool)
+        or not isinstance(raw, (int, float))
+        or raw <= 0
+        or raw in (float("inf"), float("-inf"))
+        or raw != raw  # NaN
+    ):
+        return None, [
+            "op_timeout must be a positive, finite number of seconds, or null (no limit)"
+        ]
+    return float(raw), []
+
+
+def declared_op_timeout(environment: Any) -> tuple[bool, float | None]:
+    """The operation timeout the environment root declares: ``(declared?, seconds)``,
+    where `seconds` is None for "wait forever".
+
+    Best-effort, like the other readers here: a malformed value reads as *not declared*
+    (the dialect validator is what reports it), so execution falls back to the default
+    rather than silently to no limit at all."""
+    if not isinstance(environment, dict):
+        return False, None
+    extension = environment.get(EXTENSION_KEY)
+    if not isinstance(extension, dict) or "op_timeout" not in extension:
+        return False, None
+    value, errors = parse_op_timeout(extension["op_timeout"])
+    if errors:
+        return False, None
+    return True, value
 
 
 # -- probe ---------------------------------------------------------------------

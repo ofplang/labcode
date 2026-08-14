@@ -31,8 +31,9 @@ from ofplang.run import FrontDoorResult, front_door_check
 from ofplang.run.runner import ContractSyntaxError, RunnerError, load_document, serialize_document
 from ofplang.run.simulator import SimulatorError
 
-from labcode.backend import DEFAULT_SECONDS_PER_TICK
+from labcode.backend import DEFAULT_SECONDS_PER_TICK, FROM_ENVIRONMENT
 from labcode.dialect import validate_dialect
+from labcode.extension import DEFAULT_OP_TIMEOUT
 from labcode.runner import run_labcode
 
 EXIT_OK = 0
@@ -84,6 +85,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ignore the environment's x-labcode.probe policies and treat every machine as"
              " reachable (the document is still validated)",
     )
+    # One operation timeout for the whole lab, in real seconds. The two forms exclude each
+    # other: asking for a limit and for no limit in the same breath is a mistake, not a
+    # precedence puzzle to resolve quietly.
+    timeout = p.add_mutually_exclusive_group()
+    timeout.add_argument(
+        "--op-timeout", type=float, default=None, metavar="S",
+        help="stop and fail an operation that has run for S real seconds (default: the"
+             f" environment's x-labcode.op_timeout, else {DEFAULT_OP_TIMEOUT:g})",
+    )
+    timeout.add_argument(
+        "--no-op-timeout", action="store_true",
+        help="let an operation run for as long as it takes, whatever the environment says",
+    )
     return p
 
 
@@ -130,6 +144,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not Path(path).is_file():
             print(f"lc run: {label} not found: {path!r}", file=sys.stderr)
             return EXIT_USAGE
+
+    # A limit of zero (or less) is not "no limit" -- that is what --no-op-timeout says --
+    # so it is a usage error rather than something to interpret.
+    if args.op_timeout is not None and not args.op_timeout > 0:
+        print(
+            f"lc run: --op-timeout must be a positive number of seconds "
+            f"(got {args.op_timeout:g}); use --no-op-timeout for no limit",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     # Shared workflow front door (ofplang-validate + capability gate; validate skippable).
     fd = front_door_check(args.workflow, validate=not args.no_validate)
@@ -193,6 +217,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             else ""
         )
 
+    def timeout_note(kind: str) -> str:
+        # The upstream failure says what happened and that nothing cancelled the
+        # instrument; what it cannot say is how *this* CLI's user changes the limit.
+        if kind != "op_timeout":
+            return ""
+        return (
+            " (raise the limit with --op-timeout SECONDS or the environment root's"
+            " x-labcode.op_timeout, or drop it entirely with --no-op-timeout)"
+        )
+
     try:
         # Validation already ran at the front doors above, so run trusting. `run_labcode`
         # owns the labcode Object-identity setup (rewrite the workflow's Object types to
@@ -214,6 +248,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             probe=not args.no_probe,
             on_availability_change=report_availability,
             on_cadence_slip=report_cadence_slip,
+            # Three layers, outermost first: this flag, the environment, the default.
+            # `FROM_ENVIRONMENT` is "the flag says nothing"; None is "no limit at all".
+            op_timeout=(
+                None if args.no_op_timeout
+                else FROM_ENVIRONMENT if args.op_timeout is None
+                else args.op_timeout
+            ),
         )
     except (yaml.YAMLError, ContractSyntaxError) as exc:
         print(f"lc run: invalid input: {exc}", file=sys.stderr)
@@ -232,7 +273,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         failure = result.failure
         if failure is not None:
             print(
-                f"lc run: execution failed: {failure.kind}: {failure.detail}{probe_note()}",
+                f"lc run: execution failed: {failure.kind}: {failure.detail}"
+                f"{probe_note()}{timeout_note(failure.kind)}",
                 file=sys.stderr,
             )
         else:

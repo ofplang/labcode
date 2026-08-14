@@ -145,6 +145,35 @@ def test_a_connection_at_the_environment_root_is_rejected():
     assert any("unknown key 'connection'" in e for e in result.errors)
 
 
+def test_the_root_holds_the_operation_timeout():
+    # One value for the whole lab: how long any operation may run before labcode stops
+    # waiting for it. A positive number of real seconds, or null for no limit at all.
+    for value in (7200, 0.5, None):
+        env = _device_env(_device())
+        env["x-labcode"] = {"op_timeout": value}
+        result = validate_dialect({}, env)
+        assert result.ok, result.errors
+
+
+def test_a_nonsensical_operation_timeout_is_rejected():
+    # Zero is not "no limit" (null is), and neither a string nor an infinity is a wait.
+    for value in (0, -1, "3600", True, float("inf"), float("nan")):
+        env = _device_env(_device())
+        env["x-labcode"] = {"op_timeout": value}
+        result = validate_dialect({}, env)
+        assert not result.ok, value
+        assert any("op_timeout" in e for e in result.errors)
+
+
+def test_an_operation_timeout_on_a_machine_is_rejected():
+    # Per-machine limits are deliberately not a thing: a script that knows what it waits
+    # for says so itself (`settle`), and the outer net is one number for the lab.
+    env = _device_env(_device(**{"x-labcode": {"op_timeout": 60}}))
+    result = validate_dialect({}, env)
+    assert not result.ok
+    assert any("unknown key 'op_timeout'" in e for e in result.errors)
+
+
 def test_x_labcode_on_a_process_is_rejected():
     env = _env({"id": "v0"})
     env["processes"]["m"]["x-labcode"] = {"connection": CONNECTION}

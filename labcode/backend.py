@@ -33,6 +33,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from typing import Literal
 
 from ofplang.run.simulator import (
     DeviceComputationError,
@@ -41,7 +42,9 @@ from ofplang.run.simulator import (
 )
 
 from labcode.extension import (
+    DEFAULT_OP_TIMEOUT,
     FLAVOR_SILA2,
+    declared_op_timeout,
     device_connections,
     python_code,
     script_endpoints,
@@ -64,6 +67,11 @@ from labcode.sila2 import failing_code, plan_clients, wrap
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
 # reads as discrete, observable steps rather than a burst of sub-second replans.
 DEFAULT_SECONDS_PER_TICK = 20.0
+
+#: `op_timeout="environment"` -- take the operation timeout from the environment document
+#: (or the default). It is a distinct value from `None`, which says the opposite: run with
+#: no deadline at all, whatever the document declares.
+FROM_ENVIRONMENT: Literal["environment"] = "environment"
 
 
 def _flavored(code: str, script, machines, label: str) -> str:
@@ -333,6 +341,21 @@ class LabcodeBackend(SubprocessBackend):
         return uuid
 
 
+def _effective_op_timeout(
+    environment: dict, requested: float | None | Literal["environment"]
+) -> float | None:
+    """How long an operation may run in this environment, in real seconds (None = no
+    limit): what the caller asked for, else what the document declares, else the default.
+
+    The three layers are `lc run --op-timeout` / `--no-op-timeout`, the environment root's
+    ``x-labcode.op_timeout``, and `DEFAULT_OP_TIMEOUT` -- a lab that says nothing still
+    gets a limit, because a hang that nobody bounded is the thing this is here to stop."""
+    if isinstance(requested, str):  # the sentinel: the document decides
+        declared, value = declared_op_timeout(environment)
+        return value if declared else DEFAULT_OP_TIMEOUT
+    return requested
+
+
 def labcode_backend_factory(
     *,
     seconds_per_tick: float = DEFAULT_SECONDS_PER_TICK,
@@ -345,6 +368,7 @@ def labcode_backend_factory(
     prober: Prober | None = None,
     on_availability_change: ChangeReporter | None = None,
     on_cadence_slip: CadenceReporter | None = None,
+    op_timeout: float | None | Literal["environment"] = FROM_ENVIRONMENT,
 ) -> Callable[[dict], SubprocessBackend]:
     """Build a ``backend_factory(environment) -> SubprocessBackend`` for the runner,
     wired with the labcode env-script resolver (`make_code_resolver`).
@@ -361,7 +385,12 @@ def labcode_backend_factory(
     ``lc run --no-probe`` does). `prober` decides how a machine is checked (default: a TCP
     connection), and `on_availability_change(id, reachable)` is told when one changes, so a
     caller can report it. `on_cadence_slip(skipped, budget, spent)` is told once if a poll
-    cycle outgrows its poll period (see `LabcodeBackend.advance`)."""
+    cycle outgrows its poll period (see `LabcodeBackend.advance`).
+
+    `op_timeout` bounds how long one operation may run, in **real seconds**: by default the
+    environment's ``x-labcode.op_timeout`` (or `DEFAULT_OP_TIMEOUT` if it declares none),
+    which a caller overrides with a number of its own or `None` for no limit at all -- what
+    ``lc run --op-timeout`` / ``--no-op-timeout`` pass."""
 
     def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
@@ -373,6 +402,7 @@ def labcode_backend_factory(
             "monotonic": monotonic,
             "sleep": sleep,
             "on_cadence_slip": on_cadence_slip,
+            "op_timeout": _effective_op_timeout(environment, op_timeout),
         }
         if probe:
             kwargs["availability"] = build_availability(

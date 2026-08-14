@@ -275,6 +275,82 @@ def test_cli_no_probe_ignores_the_policy(tmp_path, capsys):
     assert "unreachable" not in capsys.readouterr().err
 
 
+# -- the operation timeout -----------------------------------------------------
+
+#: `device_script.env.yaml`, but the measurement never returns. This is what an
+#: instrument that has stopped answering looks like from labcode's side: the child is
+#: alive, so no poll will ever complete the op.
+HANGING_ENV = """\
+time: {unit: second}
+devices: [{id: rack, spots: [slot]}]
+transporters: [{id: arm}]
+transports: []
+processes:
+  measure:
+    modes:
+      - id: v0
+        duration: 3
+        x-labcode:
+          script:
+            language: python
+            code: |
+              import time
+              time.sleep(600)
+              return {"od": 0.42}
+objective: {kind: makespan}
+"""
+
+
+def test_cli_stops_a_hung_operation_and_says_how_to_change_the_limit(tmp_path, capsys):
+    # End to end with a real child process: the script hangs, the deadline stops it, and
+    # the run ends the way any failure does -- a status document, a reason, exit 1 --
+    # instead of polling for as long as anyone is willing to wait.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    env = tmp_path / "hanging.env.yaml"
+    env.write_text(HANGING_ENV, encoding="utf-8")
+    status = tmp_path / "status.yaml"
+    code = run_cli.main([
+        WF, "--env", str(env), "--seconds-per-tick", "0.01",
+        "--op-timeout", "1", "-o", str(status),
+    ])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "op_timeout" in err
+    assert "did not finish within 1s" in err
+    assert "--no-op-timeout" in err  # the way out is in the message
+    assert status.exists()  # the failure is on the record, not just on stderr
+
+
+def test_cli_rejects_a_zero_timeout(tmp_path, capsys):
+    # Zero is not a way to say "no limit"; --no-op-timeout is.
+    code = run_cli.main([WF, "--env", ENV, "--op-timeout", "0"])
+    assert code == 2
+    assert "--no-op-timeout" in capsys.readouterr().err
+
+
+def test_cli_rejects_asking_for_both_a_limit_and_no_limit():
+    with pytest.raises(SystemExit) as excinfo:
+        run_cli.main([WF, "--env", ENV, "--op-timeout", "10", "--no-op-timeout"])
+    assert excinfo.value.code == 2
+
+
+def test_cli_no_op_timeout_asks_for_no_deadline(monkeypatch):
+    # The flag has to reach the backend, since nothing else can express "wait forever".
+    seen = {}
+
+    def fake_run(*args, **kwargs):
+        from ofplang.run.app import RunResult
+
+        seen["op_timeout"] = kwargs.get("op_timeout")
+        return RunResult(
+            status={"now": 0, "activities": []}, result_boundary={}, failed=False, failure=None
+        )
+
+    monkeypatch.setattr(run_cli, "run_labcode", fake_run)
+    assert run_cli.main([WF, "--env", ENV, "--no-op-timeout"]) == 0
+    assert seen["op_timeout"] is None
+
+
 def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
     # A process with no script warns (typed-default no-op) but still runs. Stub the run so
     # the test does not spend real wall-clock time.

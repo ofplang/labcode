@@ -367,8 +367,11 @@ equally available to a `raw` script, and stays visible in the code that depends 
   `settle` that times out fails the *operation* while the instrument carries on. Whatever
   state that leaves the lab in is the operator's to restore, as for any operation that
   failed part way. The default timeout is therefore generous rather than tight: its purpose
-  is to turn a hang into a diagnosable failure, since nothing else in the stack bounds an
-  operation's running time.
+  is to turn a hang into a diagnosable failure.
+- **It is the inner of two limits.** This one is per command, chosen by the script that
+  knows what it is waiting for, and its failure can name the command that hung. The outer
+  one (§1.8) is per operation and lab-wide, and catches the hangs no script is watching
+  for. The outer default is looser than this one, so where both apply this is what fires.
 - **Its timeout is in real seconds**, and is unrelated to the mode's `duration` — which is
   an *estimate*, in environment time, for scheduling. A schedule's estimate is not a
   deadline, and `--seconds-per-tick` does not rescale the timeout.
@@ -379,8 +382,9 @@ equally available to a `raw` script, and stays visible in the code that depends 
 
 ### 1.7 Where an `x-labcode` may appear
 
-The positions of §1 are the only ones: the environment **root** (`probe` defaults only),
-`processes.<p>.modes[]`, `transports[]`, `devices[]` and `transporters[]`. An `x-labcode`
+The positions of §1 are the only ones: the environment **root** (`probe` defaults and
+`op_timeout`), `processes.<p>.modes[]`, `transports[]`, `devices[]` and
+`transporters[]`. An `x-labcode`
 anywhere else in the environment — on a process, beside `time` — is an **error**, as is a
 key at a position that does not define it (a `connection` at the root, a `probe` on a mode).
 Nothing would read it, and `ofplang-schedule` tolerates an `x-` key at *every* position
@@ -389,6 +393,45 @@ without interpreting it, so a misplaced block would otherwise stay silent foreve
 This rule covers the environment only. An `x-labcode` in the **workflow** is not reported:
 that document is portable v0, read by other implementations, and what extension keys it
 carries is not labcode's business.
+
+### 1.8 Operation timeout — `op_timeout`
+
+How long **one operation** may run before labcode stops waiting for it, in **real
+seconds**. It lives at the environment root and nowhere else:
+
+```yaml
+x-labcode:
+  op_timeout: 7200      # a positive number of real seconds (the default)
+  # op_timeout: null    # or: wait as long as it takes
+```
+
+- `op_timeout` MUST be a positive, finite number, or `null` for **no limit**. `0` is not a
+  way to say "no limit" and is an error; a machine may not declare one (a per-machine key
+  is an unknown key, §1.1).
+- **One value for the whole lab.** The fine-grained waits belong to the scripts, which know
+  what they are waiting for (`settle`, §1.6.1); this value only has to clear the longest
+  operation the lab legitimately runs. Its default (7200 s) is twice the `settle` default,
+  so where both apply the inner one — which can name the command — fires first.
+- **The clock is real seconds**, from the moment the operation starts, covering everything
+  it does: connecting, every command it issues, and its own waiting. It is unrelated to the
+  mode's `duration` (an *estimate*, in environment time, for scheduling) and is not
+  rescaled by `--seconds-per-tick`.
+- **What happens when it expires**: the operation's child process is stopped and the
+  operation **fails** with the reason code `op_timeout`. That is an ordinary graceful
+  failure — the run stops, the status document is written, the reason is reported, the exit
+  code is 1 — which is the point: without a limit, an instrument that stops answering
+  leaves a run polling with *no* status document and no reason at all.
+- **A timeout is not a cancel**, exactly as in §1.6.1: nothing here can stop a command the
+  instrument has already accepted. It keeps running, and the state that leaves behind —
+  including material a transport was part way through moving — is the operator's to
+  restore. The run stops there, so labcode's own picture of the lab is not relied on
+  afterwards.
+- The machine that hung is **not** treated as unavailable: `op_timeout` does not add it to
+  the down machines (§1.5), because "not answering" is not "not there", and re-routing work
+  onto other machines while this one is still physically running its command would make the
+  lab less consistent, not more.
+- `lc run` overrides it for one run: `--op-timeout SECONDS`, or `--no-op-timeout` for no
+  limit at all. The order is flag, then document, then default.
 
 ## 2. Code source resolution and exclusivity
 
@@ -412,7 +455,9 @@ Each dispatched operation runs in its own child process (real, wall-clock-paced)
 runner discovers completion by polling, so a multi-minute computation never blocks it.
 The advisory `duration` is the scheduler's estimate; the real duration is the script's.
 A script error (an exception, a wrong/ missing output name, a non-conformant value) is a
-graceful runtime failure (§22.2): the operation ends `failed` and the run stops.
+graceful runtime failure (§22.2): the operation ends `failed` and the run stops. An
+operation that never finishes at all ends the same way once it passes `op_timeout` (§1.8) —
+polling for completion is not the same as waiting forever for it.
 
 Cadence: the nominal poll period is `poll_interval × seconds_per_tick`. labcode defaults
 `seconds_per_tick` to ~20 s (so a real op is polled at an observable cadence, not
