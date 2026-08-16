@@ -44,7 +44,7 @@ toolchain. Subcommands forward to the ofplang toolchain.
 commands:
   validate    check a workflow document is well-formed portable v0
   schedule    compute a schedule for a workflow
-  run         execute a workflow (rolling-horizon runner / simulator)
+  run         execute a workflow on the labcode backend (env x-labcode scripts)
 
 Run `lc <command> --help` for command-specific options.
 
