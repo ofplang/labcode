@@ -351,6 +351,65 @@ def test_cli_no_op_timeout_asks_for_no_deadline(monkeypatch):
     assert seen["op_timeout"] is None
 
 
+def _stub_run(monkeypatch, seen: dict):
+    """Stand in for `run_labcode` so a CLI test can see what it was handed, without
+    spending a run on it."""
+
+    def fake_run(*args, **kwargs):
+        from ofplang.run.app import RunResult
+
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return RunResult(
+            status={"now": 0, "activities": []}, result_boundary={}, failed=False, failure=None
+        )
+
+    monkeypatch.setattr(run_cli, "run_labcode", fake_run)
+
+
+def test_cli_hands_over_the_environment_document_it_already_read(monkeypatch):
+    # The dialect front door parses the environment to check its `x-labcode` keys; the
+    # runner takes a document, so that parse is the only one -- the file is not read again.
+    import yaml
+
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+    assert run_cli.main([WF, "--env", ENV]) == 0
+    handed_over = seen["args"][1]
+    assert isinstance(handed_over, dict)
+    assert handed_over == yaml.safe_load(Path(ENV).read_text(encoding="utf-8"))
+
+
+def test_cli_max_ticks_reaches_the_runner(monkeypatch):
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+    assert run_cli.main([WF, "--env", ENV, "--max-ticks", "7"]) == 0
+    assert seen["kwargs"]["max_ticks"] == 7
+
+
+def test_cli_max_ticks_zero_means_no_limit(monkeypatch):
+    # 0 is how this CLI says "no limit", as it is upstream; the runner spells that None.
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+    assert run_cli.main([WF, "--env", ENV, "--max-ticks", "0"]) == 0
+    assert seen["kwargs"]["max_ticks"] is None
+
+
+def test_cli_default_max_ticks_is_the_upstream_default(monkeypatch):
+    from ofplang.run.runner import DEFAULT_MAX_TICKS
+
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+    assert run_cli.main([WF, "--env", ENV]) == 0
+    assert seen["kwargs"]["max_ticks"] == DEFAULT_MAX_TICKS
+
+
+def test_cli_rejects_a_negative_max_ticks(capsys):
+    # Not a limit at all; the message points at the way to ask for none.
+    assert run_cli.main([WF, "--env", ENV, "--max-ticks", "-1"]) == 2
+    assert "use 0 for no limit" in capsys.readouterr().err
+
+
 def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
     # A process with no script warns (typed-default no-op) but still runs. Stub the run so
     # the test does not spend real wall-clock time.

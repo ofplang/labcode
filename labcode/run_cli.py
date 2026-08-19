@@ -28,7 +28,13 @@ from pathlib import Path
 
 import yaml
 from ofplang.run import FrontDoorResult, front_door_check
-from ofplang.run.runner import ContractSyntaxError, RunnerError, load_document, serialize_document
+from ofplang.run.runner import (
+    DEFAULT_MAX_TICKS,
+    ContractSyntaxError,
+    RunnerError,
+    load_document,
+    serialize_document,
+)
 from ofplang.run.simulator import SimulatorError
 
 from labcode.backend import DEFAULT_SECONDS_PER_TICK, FROM_ENVIRONMENT
@@ -65,6 +71,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--speed", type=float, default=1.0, metavar="X",
         help="wall-clock speed multiplier (2.0 = twice as fast)",
+    )
+    p.add_argument(
+        "--max-ticks", type=int, default=DEFAULT_MAX_TICKS, metavar="N",
+        help=(
+            f"give up after N ticks as non-terminating, or 0 for no limit (default "
+            f"{DEFAULT_MAX_TICKS}); one tick is --poll-interval x --seconds-per-tick of real "
+            "time, so at the default cadence the default limit is weeks away -- a stuck "
+            "instrument is caught by --op-timeout, not by this"
+        ),
     )
     p.add_argument("-o", "--output", metavar="OUT", help="write the final status YAML here")
     p.add_argument("--boundary-out", metavar="FILE", help="write the result boundary document here")
@@ -144,6 +159,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not Path(path).is_file():
             print(f"lc run: {label} not found: {path!r}", file=sys.stderr)
             return EXIT_USAGE
+
+    # A negative tick count is not a limit at all (zero *is* how this one says "no
+    # limit", as it does upstream), so it is a usage error rather than something to
+    # interpret.
+    if args.max_ticks < 0:
+        print(
+            f"lc run: --max-ticks must not be negative: {args.max_ticks}; use 0 for no limit",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     # A limit of zero (or less) is not "no limit" -- that is what --no-op-timeout says --
     # so it is a usage error rather than something to interpret.
@@ -234,7 +259,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # backend); it runs the rewritten document in memory (no temp file).
         result = run_labcode(
             workflow_doc,
-            args.env,
+            # The environment document read above, not its path: the dialect front door
+            # already parsed it, and the runner takes a document (ofplang-run >= 0.1.13),
+            # so the file is read once. The plan's `meta.environment` reads `<in-memory>`
+            # as a result, which nothing in a run consumes.
+            env_doc,
             boundary,
             # None keeps the runner's default, which is the poll interval: a margin of at
             # least one tick is what stops an overrunning operation's successor from being
@@ -242,6 +271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             running_task_margin=args.margin,
             random_seed=args.seed,
             poll_interval=args.poll_interval,
+            # 0 is "no limit" here as it is upstream; the runner spells that None.
+            max_ticks=args.max_ticks or None,
             seconds_per_tick=args.seconds_per_tick,
             speed=args.speed,
             observation_out=args.observation_out,

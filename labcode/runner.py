@@ -36,15 +36,16 @@ from labcode.probe import CadenceReporter, ChangeReporter, Prober
 class LabcodeRunner(RollingRunner):
     """A `RollingRunner` that injects and mints labcode Object identities (`_id`).
 
-    `workflow` is a path or an already-loaded document; `environment` is a path (the
-    runner reads it itself). Object types are rewritten to declare ``_id``, the boundary's
+    `workflow` and `environment` are each a path or an already-loaded document (the
+    `lc run` front door passes the environment it has already read for its dialect check,
+    so the file is not read twice). Object types are rewritten to declare ``_id``, the boundary's
     Object inputs are minted, and the labcode backend is wired with a shared `IdGenerator`
     (default: reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
     `sleep` configure the wall-clock backend, `probe` / `prober` /
     `on_availability_change` its availability probing (`labcode.probe`), and `op_timeout`
     how long one operation may run before it is stopped and failed (default: whatever the
     environment's ``x-labcode.op_timeout`` says); any other keyword is forwarded to
-    `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`).
+    `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`, `max_ticks`).
 
     **`running_task_margin` defaults to the poll interval here**, not to the upstream 0.
     The margin is how far ahead of *now* a still-running operation is assumed to finish

@@ -318,8 +318,11 @@ class LabcodeBackend(SubprocessBackend):
         """The machines the runner should schedule around: whatever the base backend holds
         down (an injected fault) **plus** whatever an availability probe cannot reach.
 
-        The runner polls this on every replan, so this is where probing happens -- each
-        machine as often as its policy says, cached in between (`labcode.probe`). Both
+        The runner polls this on every tick -- since ofplang-run 0.1.13 a tick and a replan
+        are not the same thing: it replans only when something changed, but it asks this
+        every time, because a machine going down is one of those things. So this is where
+        probing happens -- each machine as often as its policy says, cached in between
+        (`labcode.probe`). Both
         devices and transporters may appear, which the runner takes out of the environment
         it schedules against (ofplang-run >= 0.1.11)."""
         down = set(super().down_devices())
