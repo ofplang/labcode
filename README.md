@@ -42,15 +42,32 @@ processes:
 pip install labcode
 ```
 
-Requires Python 3.10+. This package is a thin dispatcher; it depends on the
-ofplang sibling packages that do the work:
+Requires Python 3.10+. `lc validate` and `lc schedule` are dispatched to the ofplang
+sibling packages unchanged; `lc run` is this package's own runner, built on them:
 
 - [`ofplang-validate`](https://github.com/ofplang/validate) — the validator
 - [`ofplang-schedule`](https://github.com/ofplang/schedule) — the scheduler
 - [`ofplang-run`](https://github.com/ofplang/run) — the runner / simulator
 
 The language is defined in the [ofplang/spec](https://github.com/ofplang/spec)
-repository.
+repository, and what labcode adds to it in [`SPECIFICATIONS.md`](SPECIFICATIONS.md).
+
+What `lc run` brings of its own, beyond dispatching:
+
+- **the labcode backend** — each device operation's `x-labcode.script` runs
+  out-of-process on a wall clock (§1.2, §1.3), so a real operation that takes minutes
+  does not block the replan loop, and an operation that never returns is stopped by
+  **`op_timeout`** (§1.8; `--op-timeout` / `--no-op-timeout`).
+- **the dialect front door** — the environment's `x-labcode` extension is validated
+  before anything runs, on top of the portable-v0 check `lc validate` performs (§1, §2).
+- **availability probing** — each machine is checked as often as its `probe` policy says,
+  and one that cannot be reached is taken out of the environment the scheduler plans
+  against, so the run routes around it (§1.5; `--no-probe`).
+- **object identity** — the reserved `_id` view key is declared on Object types and minted
+  per object, so a physical thing can be followed through a run (§4).
+- **`flavor: sila2`** — a script that speaks SiLA2 gets its clients opened around it
+  (§1.6). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
+  installed into whichever interpreter runs the scripts.
 
 ## Usage
 
