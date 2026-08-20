@@ -141,12 +141,28 @@ def _read_document(path: str, what: str) -> tuple[dict | None, int | None]:
     return doc, None
 
 
-def _emit(status: dict, output) -> None:
-    text = serialize_document(status)
-    if output:
-        Path(output).write_text(text, encoding="utf-8")
-    else:
+def _write(text: str, output, what: str) -> int | None:
+    """Write `text` to the `output` path (or stdout when unset), returning EXIT_USAGE
+    if the file could not be written.
+
+    Mirrors `ofplang.run.cli._write` (see L3/O1: this CLI and `ofp-run`'s are kept in
+    step by hand). An unwritable output path is an input error like an unreadable one,
+    but it is discovered once the run has already occupied real machines, so the caller
+    reports it and still attempts the other outputs rather than dropping them.
+    """
+    if not output:
         sys.stdout.write(text)
+        return None
+    try:
+        Path(output).write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"lc run: cannot write {what} {str(output)!r}: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    return None
+
+
+def _emit(status: dict, output) -> int | None:
+    return _write(serialize_document(status), output, "status")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -294,12 +310,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"lc run: execution failed: {exc}{probe_note()}", file=sys.stderr)
         return EXIT_FAILED
 
+    write_err = None
     if args.boundary_out:
-        Path(args.boundary_out).write_text(
-            serialize_document(result.result_boundary), encoding="utf-8"
+        write_err = _write(
+            serialize_document(result.result_boundary), args.boundary_out, "result boundary"
         )
 
-    _emit(result.status, args.output)
+    write_err = _emit(result.status, args.output) or write_err
     if result.failed:
         failure = result.failure
         if failure is not None:
@@ -311,7 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(f"lc run: execution failed: an activity failed{probe_note()}", file=sys.stderr)
         return EXIT_FAILED
-    return EXIT_OK
+    return write_err or EXIT_OK
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry

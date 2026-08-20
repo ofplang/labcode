@@ -426,3 +426,26 @@ def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
     code = run_cli.main([WF, "--env", str(env), "-o", str(out)])
     assert code == 0
     assert "typed-default no-op" in capsys.readouterr().err
+
+
+def test_cli_unwritable_output_is_a_usage_error(tmp_path, capsys, monkeypatch):
+    # An output path that cannot be written is an input error like one that cannot be
+    # read (exit 2), not an execution failure, and it says which output it was.
+    _stub_run(monkeypatch, {})
+    out = tmp_path / "no_such_dir" / "status.yaml"
+    assert run_cli.main([WF, "--env", ENV, "-o", str(out)]) == 2
+    assert "cannot write status" in capsys.readouterr().err
+
+
+def test_cli_unwritable_boundary_out_still_emits_the_status(tmp_path, capsys, monkeypatch):
+    # The run has already occupied real machines by this point, so a secondary output
+    # that cannot be written must not cost it the status document.
+    _stub_run(monkeypatch, {})
+    out = tmp_path / "status.yaml"
+    code = run_cli.main(
+        [WF, "--env", ENV, "--boundary-out", str(tmp_path / "no_such_dir" / "b.yaml"),
+         "-o", str(out)]
+    )
+    assert code == 2
+    assert "cannot write result boundary" in capsys.readouterr().err
+    assert out.is_file()
