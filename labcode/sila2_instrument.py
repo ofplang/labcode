@@ -79,6 +79,23 @@ ATTR_EXECUTION_UUID = "sila.execution_uuid"
 UNSETTLED = "sila2_command_unsettled"
 UNSETTLED_MESSAGE = "script ended without collecting the command responses"
 
+#: What a process must have in its **environment before it starts** if it is going to drive a
+#: SiLA2 instrument *and* import anything else that uses protobuf.
+#:
+#: `sila2` needs protobuf's pure-Python implementation: it ships a generated
+#: ``SiLAFramework_pb2`` and generates another at runtime for each server's features, and the C
+#: implementation refuses the second registration ("duplicate file name SiLAFramework.proto").
+#: It asks for that by setting this variable while *it* is imported -- which protobuf only reads
+#: the first time protobuf itself is imported, so it works right up until something imports
+#: protobuf first. Passing the same thing in the environment asks for it without depending on
+#: import order at all, which is the only robust answer for a process that also builds, say, an
+#: exporter that speaks protobuf.
+#:
+#: Set unconditionally rather than only when it is unset, because `sila2` overrides it too. A
+#: process where it is not ``python`` cannot open a client at all, so honouring a different
+#: value would only make a run fail in one mode and work in another.
+PROTOBUF_ENV = {"PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION": "python"}
+
 #: Where a client's address is stashed. `SilaClient` keeps its own under a name-mangled
 #: attribute, so it is read from the call instead and left here for a command to find.
 _ENDPOINT_ATTR = "_labcode_endpoint"

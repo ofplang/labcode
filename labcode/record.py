@@ -119,10 +119,12 @@ class Recorder(Protocol):
         ...
 
     def child_env(self) -> Mapping[str, str] | None:
-        """Environment variables that tie a child process's record to the current operation.
+        """Environment variables a child process needs in order to record what it does, and to
+        have that land under the current operation.
 
-        Opaque to the caller: it passes them to the child and asks no questions. `None` when
-        there is nothing to tie the child to."""
+        Opaque to the caller: it passes them to the child and asks no questions -- which is why
+        an implementation may put anything its own recording needs in here, not only what
+        identifies the operation. `None` when this child is to record nothing."""
         ...
 
     def shutdown(self) -> None:

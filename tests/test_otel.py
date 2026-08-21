@@ -203,41 +203,28 @@ def test_the_file_exporter_writes_one_line_per_span_and_names_the_process(tmp_pa
     assert lines[1]["parent_span_id"] is None
 
 
-def test_sila2_is_imported_before_the_exporter_touches_protobuf(monkeypatch):
-    """The order in `resume_from_env` that makes a recorded SiLA2 run possible at all.
+def test_a_recording_child_is_told_which_protobuf_implementation_to_use(recorded):
+    """What makes a recorded SiLA2 run possible at all.
 
-    `sila2` requires protobuf's pure-Python implementation and can only ask for it as it is
-    imported, before protobuf is; the exporter imports protobuf. Get this backwards and every
-    SiLA2 script in a recorded run fails to open a client -- which no test without a real
-    instrument would notice, and which nobody would keep right by intuition. So it is pinned
-    here: resolving the intervention points (which imports `sila2`) comes first.
+    `sila2` needs protobuf's pure-Python implementation and asks for it as it is imported,
+    which is too late if anything imported protobuf first -- and recording does exactly that,
+    through the exporter. Telling the child in its environment is what makes the order it
+    imports things in stop mattering; without this, every SiLA2 script in a recorded run fails
+    to open a client. It travels with the trace, so a run that is not recording is untouched.
     """
-    from labcode import otel
+    from labcode.sila2_instrument import PROTOBUF_ENV
 
-    order: list[str] = []
-    provider = TracerProvider()
+    recorder, _exporter, _provider = recorded
+    recorder.run_started()
+    recorder.op_started("op-1", SEAL, {})
 
-    def resolve():
-        order.append("sila2")
-        return "targets"
+    with recorder.op_active("op-1"):
+        env = recorder.child_env()
 
-    def build(**kwargs):
-        order.append("provider")
-        return provider, False
+    assert env is not None
+    assert env[TRACEPARENT].startswith("00-")
+    for name, value in PROTOBUF_ENV.items():
+        assert env[name] == value
 
-    def instrument(sink, targets=None):
-        order.append("instrument")
-        assert targets == "targets", "the already-resolved targets are reused, not re-imported"
-        return True
-
-    monkeypatch.setattr(otel, "resolve_targets", resolve)
-    monkeypatch.setattr(otel, "build_provider", build)
-    monkeypatch.setattr(otel, "instrument_sila2", instrument)
-
-    session = otel.resume_from_env(
-        {otel.TRACEPARENT: "00-12d44fa7421caf9e8df5f66c0ef0eb34-c540f0d2e189367f-01"}
-    )
-    assert session is not None
-    session.finish()
-
-    assert order == ["sila2", "provider", "instrument"]
+    recorder.op_finished("op-1")
+    recorder.run_finished()

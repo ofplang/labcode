@@ -50,6 +50,7 @@ from opentelemetry.trace import Span, Status, StatusCode
 from labcode.otel_sila2 import ATTR_ERROR_TYPE, OtelSink
 from labcode.record import ATTR_MISSION, RUN_STOPPED, SPAN_RUN
 from labcode.sila2_instrument import (
+    PROTOBUF_ENV,
     Targets,
     instrument_sila2,
     resolve_targets,
@@ -242,7 +243,12 @@ class OtelRecorder:
         traceparent = carrier.get("traceparent")
         if not traceparent:
             return None
-        env = {TRACEPARENT: traceparent}
+        # `PROTOBUF_ENV` travels with the record, not with every child: a child records only
+        # when it is given a trace to join, and recording is the reason this process imports
+        # protobuf at all. So a run that is not recording is left exactly as it was, and a
+        # child that *is* recording can no longer be broken by the order in which it imports
+        # things (see `PROTOBUF_ENV` for what would break).
+        env = {TRACEPARENT: traceparent, **PROTOBUF_ENV}
         tracestate = carrier.get("tracestate")
         if tracestate:
             env[TRACESTATE] = tracestate
@@ -292,16 +298,12 @@ def resume_from_env(
     if not traceparent:
         return None
 
-    # 🔴 The order of the next two steps is load-bearing, for a reason nothing about
-    # recording would suggest. `sila2` requires protobuf's **pure-Python** implementation --
-    # it ships a generated `SiLAFramework_pb2` and generates another at runtime for each
-    # server's features, and the C implementation rejects the second registration
-    # ("duplicate file name SiLAFramework.proto") -- and the only way it can get that is by
-    # setting an environment variable when it is imported, which protobuf reads *the first
-    # time it is imported* (see `sila2/__init__.py`). The exporter built below imports
-    # protobuf. So `sila2` has to be imported first, which resolving the intervention points
-    # does; otherwise every SiLA2 script in a recorded run fails to open a client at all.
-    # A test pins this order, because it is not one anybody would keep by intuition.
+    # `sila2` is imported here, before the exporter below imports protobuf, because a process
+    # that imports protobuf first cannot open a SiLA2 client at all (`PROTOBUF_ENV` explains
+    # why). What actually makes a recorded run safe is that the child was *told* which protobuf
+    # implementation to use, in its environment, where no import order can reach it -- so this
+    # order is a convenience rather than a load-bearing rule. It costs nothing and keeps
+    # `resume_from_env` correct in a process whose environment somebody else built.
     targets: Targets | None = None
     with contextlib.suppress(Exception):
         targets = resolve_targets()

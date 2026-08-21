@@ -127,3 +127,43 @@ def test_a_run_that_is_not_recording_writes_nothing(tmp_path, monkeypatch):
     assert not runner.failed
     assert runner.trace_id is None
     assert _spans(tmp_path) == []
+
+
+def test_a_recording_child_gets_the_protobuf_implementation_sila2_needs(tmp_path, monkeypatch):
+    """The other half of what a child is handed, and the one nothing in this interpreter can
+    show: `sila2` cannot open a client in a process whose protobuf is the C implementation, and
+    it can only ask for the pure-Python one *before* protobuf is imported -- which recording,
+    by importing an exporter that speaks protobuf, is exactly what takes away. The child is told
+    in its environment instead, where no import order can reach it.
+    """
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    pytest.importorskip("google.protobuf", reason="protobuf is not installed")
+    from labcode.runner import LabcodeRunner
+
+    # The script reports what its process actually resolved, as a span name.
+    environment = tmp_path / "env.yaml"
+    environment.write_text(
+        TENV.read_text(encoding="utf-8").replace(
+            "moved = (view, from_spot, to_spot, transporter)",
+            "from google.protobuf.internal import api_implementation; "
+            "from opentelemetry import trace; "
+            "trace.get_tracer('child').start_span('protobuf ' + api_implementation.Type()).end()",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LC_TRACE_FILE", str(tmp_path / "record.jsonl"))
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
+
+    clock = FakeClock()
+    runner = LabcodeRunner(
+        TWF, str(environment), seconds_per_tick=0.001, monotonic=clock.monotonic,
+        sleep=clock.sleep, random_seed=0, running_task_margin=1, trace=True,
+    )
+    try:
+        runner.run()
+    finally:
+        runner.sim.close()
+    assert not runner.failed
+
+    names = [span["name"] for span in _spans(tmp_path)]
+    assert "protobuf python" in names, f"the child resolved something else: {names}"
