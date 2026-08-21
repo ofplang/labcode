@@ -82,9 +82,10 @@ sila2 = ["sila2>=0.14"]
 # The gRPC instrumentation is what puts each RPC under the connection or the command that
 # issued it -- the feature definitions a connection fetches, and a command's real round
 # trip. It brings no `grpcio` of its own (its floor on one is an extra), which is right
-# here: the `grpcio` in this process is whichever one `sila2` brought. `0.41b0` is the
-# oldest release with the `filter_` this uses, and it accepts `opentelemetry-api ~= 1.12`,
-# so it does not pull the floors above upwards.
+# here: the `grpcio` in this process is whichever one `sila2` brought. The `filter_` this
+# relies on has been there since `0.34b0`; `0.41b0` is simply the oldest release checked
+# against the floors above, and it accepts `opentelemetry-api ~= 1.12`, so asking for it
+# does not pull them upwards.
 otel = [
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",

@@ -70,8 +70,8 @@ What `lc run` brings of its own, beyond dispatching:
   installed into whichever interpreter runs the scripts.
 - **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
   traces: one trace per run, a span per operation, and — measured inside the process that
-  issued them — a span per SiLA2 connection, per command, and per gRPC call underneath
-  either. Off by default; the extra is `pip install labcode[otel]`.
+  issued them — a span per SiLA2 connection, per command, and per gRPC call each of those
+  made. Off by default; the extra is `pip install labcode[otel]`.
 
 ## Usage
 

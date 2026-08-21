@@ -34,8 +34,8 @@ one choke point every unary RPC passes through, but each module holds its own re
 from its start to the collection of its responses, and *arbitrary script code sits in between* --
 making that whole stretch the current context would swallow unrelated measurements as children of
 this one. The RPCs, however, run inside these wrappers only, so those windows alone are wrapped in
-`Sink.active`. That is what will let gRPC instrumentation, added later, land its RPCs under the
-right command (and every feature-definition fetch under the connection).
+`Sink.active`. That is what lets the gRPC instrumentation land its RPCs under the right command,
+and every feature-definition fetch under the connection (`labcode.otel_sila2.instrument_grpc`).
 
 **`get_responses()` is not the signal that a command finished.** It may be called more than once,
 and it raises `CommandExecutionNotFinished` while the instrument is still working. Closing the
@@ -478,7 +478,7 @@ def _patch_client_init(state: _State) -> None:
             attributes[ATTR_PORT] = port
         # Always measured: it is a cost every operation pays and cannot avoid (0.4-0.9 s against
         # the reference lab, 16% of one run's wall clock), it is not recoverable from anything
-        # else the record holds, and it is what a later gRPC instrumentation hangs its per-RPC
+        # else the record holds, and it is what the gRPC instrumentation hangs its per-RPC
         # spans from.
         handle = _start(SPAN_CONNECT, attributes)
         try:
