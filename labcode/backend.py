@@ -24,16 +24,23 @@ string synthesis here; the child stays a plain script runner that knows nothing 
 The default cadence is coarse (``seconds_per_tick`` ~ tens of seconds): the effective
 poll period is ``poll_interval * seconds_per_tick``, and a real device op wants to be
 polled at a human-observable cadence, not sub-second (which would flood the replan loop).
+
+What the run did is recorded through the seam in `labcode.record`: an operation's record is
+opened at dispatch -- before it, in fact, since dispatch is what launches the child process
+that has to be tied to that record -- and closed when a poll finds the operation finished. A
+run that was not asked to record gets a recorder that does nothing, so there is one path
+either way and no conditional in the middle of dispatch.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
-from collections.abc import Callable
-from typing import Literal
+from collections.abc import Callable, Mapping
+from typing import Any, Literal
 
 from ofplang.run.simulator import (
     DeviceComputationError,
@@ -53,13 +60,30 @@ from labcode.extension import (
     transporter_connections,
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
-from labcode.objectid import stamp_object_ids
+from labcode.objectid import RESERVED_ID, stamp_object_ids
 from labcode.probe import (
     Availability,
     CadenceReporter,
     ChangeReporter,
     Prober,
     build_availability,
+)
+from labcode.record import (
+    ATTR_MODE,
+    ATTR_NODE,
+    ATTR_OBJECT_ID,
+    ATTR_PROCESS,
+    ATTR_SPOT_FROM,
+    ATTR_SPOT_TO,
+    ATTR_TICK_END,
+    ATTR_TICK_START,
+    ATTR_TRANSPORTER,
+    OP_FAILED,
+    RUN_STOPPED,
+    SPAN_PROCESS_PREFIX,
+    SPAN_TRANSPORT,
+    NullRecorder,
+    Recorder,
 )
 from labcode.sila2 import failing_code, plan_clients, wrap
 
@@ -200,13 +224,19 @@ def make_transport_resolver(environment: dict) -> Callable:
     return resolver
 
 
-def _labcode_child_spawn(job: dict):
+def _labcode_child_spawn(job: dict, env: Mapping[str, str] | None = None):
     """Launch the labcode child (`python -m labcode._child`), feeding the job JSON on
     stdin. Same shape as ofplang-run's default spawn (result via ``job["result_path"]``,
-    stderr captured), but runs the labcode partial-output child."""
+    stderr captured), but runs the labcode partial-output child.
+
+    `env` are extra variables for the child, **added to this process's environment** rather
+    than replacing it (the child is a Python interpreter, and it needs the environment it
+    was going to inherit). They are opaque here: whatever ties the child's record to the
+    operation that started it (`labcode.record`)."""
     proc = subprocess.Popen(
         [sys.executable, "-m", "labcode._child"],
         stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=({**os.environ, **env} if env else None),
     )
     assert proc.stdin is not None
     proc.stdin.write(json.dumps(job))
@@ -241,9 +271,20 @@ class LabcodeBackend(SubprocessBackend):
         spawn=None,
         availability: Availability | None = None,
         on_cadence_slip: CadenceReporter | None = None,
+        recorder: Recorder | None = None,
         **kwargs,
     ):
-        super().__init__(environment, spawn=spawn or _labcode_child_spawn, **kwargs)
+        # Recording is wired before the base class, because the default `spawn` is the one
+        # that hands a child what ties its record to the operation that started it.
+        self._recorder = recorder or NullRecorder()
+        super().__init__(environment, spawn=spawn or self._spawn_recording, **kwargs)
+        # The record's key for each dispatched operation, and the Object identities already
+        # recorded for it. The key is not the backend's operation id: the id only exists once
+        # dispatch has returned, and by then the child process it started has already been
+        # launched -- so the record has to be open before that, under a key of its own.
+        self._record_keys: dict[str, str] = {}
+        self._record_objects: dict[str, list[str]] = {}
+        self._record_seq = 0
         self._transport_resolver = transport_resolver or (lambda *args: None)
         # Which machines the environment says to check, and what the last check found
         # (`labcode.probe`); None when it asks for no probing, so `down_devices` behaves
@@ -256,6 +297,82 @@ class LabcodeBackend(SubprocessBackend):
         # with the run boundary's minting so a run's ids are consistent; default is the
         # reproducible seeded generator.
         self._id_gen = id_generator or DEFAULT_ID_GENERATOR
+
+    # -- recording what the run did (`labcode.record`) -------------------------------
+
+    def _spawn_recording(self, job: dict):
+        """The default `spawn`, plus whatever ties the child's record to this operation."""
+        return _labcode_child_spawn(job, env=self._recorder.child_env())
+
+    def _begin_record(
+        self, name: str, attributes: dict, *, duration: int | None, identities: list[str]
+    ) -> str:
+        """Open the record of an operation about to be dispatched; return its key.
+
+        Opened *before* dispatch because dispatch is what launches the child process, and a
+        child can only be tied to a record that already exists.
+
+        The plan's interval goes in beside the real timestamps the record keeps of its own.
+        The estimate is what the schedule promised; how far the operation drifted from it is
+        the interesting part, and the record is of what actually happened."""
+        key = f"r{self._record_seq}"
+        self._record_seq += 1
+        self._record_objects[key] = identities
+        if identities:
+            attributes[ATTR_OBJECT_ID] = identities
+        attributes[ATTR_TICK_START] = self.now
+        if duration is not None:
+            attributes[ATTR_TICK_END] = self.now + duration
+        self._recorder.op_started(key, name, attributes)
+        return key
+
+    def _dispatched(self, key: str, uuid: str) -> str:
+        """Tie the record's key to the operation id dispatch just returned."""
+        self._record_keys[uuid] = key
+        return uuid
+
+    def _refused(self, key: str, exc: BaseException) -> None:
+        """A dispatch the oracle refused: the operation never ran, and the record says why
+        rather than leaving an operation that appears to have started and never ended."""
+        self._record_objects.pop(key, None)
+        self._recorder.op_finished(key, error_type=type(exc).__name__, message=str(exc))
+
+    def _settle_records(self) -> None:
+        """Close the record of every dispatched operation the backend now reports finished.
+
+        Polling is the only way to learn this -- as it is for the runner: a completion is
+        discovered, never announced -- so an operation's recorded end is the poll at which it
+        was first seen finished, and is late by up to one poll period. What an instrument
+        actually spent is in the child's own record, which is measured where it happens."""
+        for uuid in list(self._record_keys):
+            try:
+                state = self.state(uuid)
+            except Exception:
+                continue  # not something that happens; `close` closes what is left
+            if state.get("status") == "running":
+                continue
+            key = self._record_keys.pop(uuid)
+            # An Object the operation *created* only has an identity now (it is minted at
+            # completion), so the identities recorded at dispatch are extended, not replaced.
+            identities = _merge_ids(
+                self._record_objects.pop(key, []), _object_ids(state.get("outputs"))
+            )
+            error_type, message = _failure_of(state)
+            self._recorder.op_finished(
+                key,
+                error_type=error_type,
+                message=message,
+                attributes={ATTR_OBJECT_ID: identities} if identities else None,
+            )
+
+    def close(self) -> None:
+        """Stop any children as the base backend does, then close the record of every
+        operation still open: the run ended before it was seen finishing."""
+        super().close()
+        for uuid in list(self._record_keys):
+            key = self._record_keys.pop(uuid)
+            self._record_objects.pop(key, None)
+            self._recorder.op_finished(key, error_type=RUN_STOPPED, message="the run ended first")
 
     def _resolve_model(self, process, mode, inputs, output_schema, definition, node=None):
         """The value model `_complete` calls at completion: merge the script's *partial*
@@ -305,6 +422,7 @@ class LabcodeBackend(SubprocessBackend):
         numbers needed to choose a better `--poll-interval` / `--seconds-per-tick`."""
         before = self.now
         reached = super().advance(until)
+        self._settle_records()
         if reached > until and self._on_cadence_slip is not None and not self._reported_slip:
             self._reported_slip = True
             self._on_cadence_slip(
@@ -330,18 +448,93 @@ class LabcodeBackend(SubprocessBackend):
             down |= self._availability.down()
         return sorted(down)
 
-    def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
-        uuid = super().dispatch_transport(
-            transporter, from_spot, to_spot, duration=duration, view=view
+    def dispatch_processing(
+        self, process, mode, duration=None, output_schema=None, inputs=None,
+        definition=None, node=None,
+    ) -> str:
+        attributes: dict[str, Any] = {ATTR_PROCESS: str(process), ATTR_MODE: str(mode)}
+        if node:
+            attributes[ATTR_NODE] = "/".join(str(step) for step in node)
+        key = self._begin_record(
+            f"{SPAN_PROCESS_PREFIX}{process}", attributes,
+            duration=duration, identities=_object_ids(inputs),
         )
-        code = self._transport_resolver(transporter, from_spot, to_spot)
-        if code is not None:
-            self._start_child_op(
-                uuid, code=code, kind="transport",
-                inputs={"from_spot": from_spot, "to_spot": to_spot,
-                        "transporter": transporter, "view": view},
-            )
-        return uuid
+        try:
+            with self._recorder.op_active(key):
+                uuid = super().dispatch_processing(
+                    process, mode, duration=duration, output_schema=output_schema,
+                    inputs=inputs, definition=definition, node=node,
+                )
+        except BaseException as exc:
+            self._refused(key, exc)
+            raise
+        return self._dispatched(key, uuid)
+
+    def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
+        attributes: dict[str, Any] = {ATTR_SPOT_FROM: str(from_spot), ATTR_SPOT_TO: str(to_spot)}
+        if transporter is not None:
+            attributes[ATTR_TRANSPORTER] = str(transporter)
+        key = self._begin_record(
+            SPAN_TRANSPORT, attributes, duration=duration, identities=_object_ids(view)
+        )
+        try:
+            # The record stays current for the whole dispatch, so both what the base backend
+            # starts and the transport's own child land under this operation.
+            with self._recorder.op_active(key):
+                uuid = super().dispatch_transport(
+                    transporter, from_spot, to_spot, duration=duration, view=view
+                )
+                code = self._transport_resolver(transporter, from_spot, to_spot)
+                if code is not None:
+                    self._start_child_op(
+                        uuid, code=code, kind="transport",
+                        inputs={"from_spot": from_spot, "to_spot": to_spot,
+                                "transporter": transporter, "view": view},
+                    )
+        except BaseException as exc:
+            self._refused(key, exc)
+            raise
+        return self._dispatched(key, uuid)
+
+
+def _object_ids(value: Any, depth: int = 0) -> list[str]:
+    """Every labcode Object identity (``_id``) reachable in `value`, in the order found and
+    without repeats.
+
+    `value` is a port map of view values, one view, or a transport's moved view. All of them
+    are collected rather than one: an operation may hold several Object ports, and may create
+    an Object as well as consume one, and "which physical objects did this operation handle"
+    is a question the record has to answer completely -- a missing one is a gap nobody
+    notices later."""
+    found: list[str] = []
+    if depth > 3:  # a view is shallow; this only stops a pathological structure
+        return found
+    if isinstance(value, dict):
+        identity = value.get(RESERVED_ID)
+        if isinstance(identity, str) and identity:
+            found.append(identity)
+        for item in value.values():
+            found.extend(_object_ids(item, depth + 1))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found.extend(_object_ids(item, depth + 1))
+    return list(dict.fromkeys(found))
+
+
+def _merge_ids(recorded: list[str], discovered: list[str]) -> list[str]:
+    return list(dict.fromkeys([*recorded, *discovered]))
+
+
+def _failure_of(state: Mapping) -> tuple[str | None, str | None]:
+    """``(error type, message)`` for a finished operation: the backend's own reason code when
+    it gave one (``op_timeout``, ``child_error``, a script's code), and nothing when the
+    operation simply completed."""
+    if state.get("status") != "failed":
+        return None, None
+    reason = state.get("reason")
+    if isinstance(reason, (tuple, list)) and len(reason) == 2:
+        return str(reason[0]), str(reason[1])
+    return OP_FAILED, None
 
 
 def _effective_op_timeout(
@@ -372,6 +565,7 @@ def labcode_backend_factory(
     on_availability_change: ChangeReporter | None = None,
     on_cadence_slip: CadenceReporter | None = None,
     op_timeout: float | None | Literal["environment"] = FROM_ENVIRONMENT,
+    recorder: Recorder | None = None,
 ) -> Callable[[dict], SubprocessBackend]:
     """Build a ``backend_factory(environment) -> SubprocessBackend`` for the runner,
     wired with the labcode env-script resolver (`make_code_resolver`).
@@ -393,7 +587,10 @@ def labcode_backend_factory(
     `op_timeout` bounds how long one operation may run, in **real seconds**: by default the
     environment's ``x-labcode.op_timeout`` (or `DEFAULT_OP_TIMEOUT` if it declares none),
     which a caller overrides with a number of its own or `None` for no limit at all -- what
-    ``lc run --op-timeout`` / ``--no-op-timeout`` pass."""
+    ``lc run --op-timeout`` / ``--no-op-timeout`` pass.
+
+    `recorder` is where what the run did is recorded (`labcode.record`); the default records
+    nothing, which is what a run that was not asked to record gets."""
 
     def factory(environment: dict) -> LabcodeBackend:
         kwargs: dict = {
@@ -406,6 +603,7 @@ def labcode_backend_factory(
             "sleep": sleep,
             "on_cadence_slip": on_cadence_slip,
             "op_timeout": _effective_op_timeout(environment, op_timeout),
+            "recorder": recorder,
         }
         if probe:
             kwargs["availability"] = build_availability(

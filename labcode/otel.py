@@ -215,11 +215,19 @@ class OtelRecorder:
         return trace.use_span(span, end_on_exit=False)
 
     def op_finished(
-        self, uuid: str, *, error_type: str | None = None, message: str | None = None
+        self,
+        uuid: str,
+        *,
+        error_type: str | None = None,
+        message: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> None:
         span = self._ops.pop(uuid, None)
-        if span is not None:
-            _finish(span, error_type, message)
+        if span is None:
+            return
+        for key, value in (attributes or {}).items():
+            span.set_attribute(key, value)
+        _finish(span, error_type, message)
 
     def child_env(self) -> Mapping[str, str] | None:
         carrier: dict[str, str] = {}

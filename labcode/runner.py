@@ -28,9 +28,10 @@ from labcode.backend import (
     FROM_ENVIRONMENT,
     labcode_backend_factory,
 )
-from labcode.idgen import IdGenerator, SeededUuid4Generator
+from labcode.idgen import IdGenerator, RealUuid4Generator, SeededUuid4Generator
 from labcode.objectid import inject_boundary_ids, inject_id_field, reserved_collisions
 from labcode.probe import CadenceReporter, ChangeReporter, Prober
+from labcode.record import Recorder, build_recorder
 
 
 class LabcodeRunner(RollingRunner):
@@ -46,6 +47,18 @@ class LabcodeRunner(RollingRunner):
     how long one operation may run before it is stopped and failed (default: whatever the
     environment's ``x-labcode.op_timeout`` says); any other keyword is forwarded to
     `RollingRunner` (e.g. `random_seed`, `down_scope`, `observation_out`, `max_ticks`).
+
+    `trace` records what the run did (`labcode.record`; off by default, so a run that says
+    nothing pays nothing). `mission_id` is recorded with it and given no meaning here --
+    several runs may share one, and labcode neither reads it nor checks it. `on_trace_id` is
+    called once with the id an operator can find the record by, as the run starts, so a CLI
+    can print it while the run is still going. `recorder` overrides where the record goes,
+    which is how a test watches what a run records with no recording backend installed.
+
+    **`trace` also changes the default `_id` generator** to a real (random) one, because a
+    reproducible generator gives the same identity to the same port on every run -- fine for
+    stable example output, wrong for asking what happened to one physical plate. An explicit
+    `id_generator` still wins, so the two are independent.
 
     **`running_task_margin` defaults to the poll interval here**, not to the upstream 0.
     The margin is how far ahead of *now* a still-running operation is assumed to finish
@@ -75,6 +88,10 @@ class LabcodeRunner(RollingRunner):
         op_timeout: float | None | Literal["environment"] = FROM_ENVIRONMENT,
         poll_interval: int | None = 1,
         running_task_margin: int | None = None,
+        trace: bool = False,
+        mission_id: str | None = None,
+        on_trace_id: Callable[[str], None] | None = None,
+        recorder: Recorder | None = None,
         **rolling_kwargs,
     ) -> None:
         doc = workflow if isinstance(workflow, dict) else load_document(workflow)
@@ -86,7 +103,23 @@ class LabcodeRunner(RollingRunner):
                 f"type(s) {clashes} declare the reserved view field '_id'; labcode owns it "
                 f"as an implicit Object identity and it must not be declared"
             )
-        self.id_generator: IdGenerator = id_generator or SeededUuid4Generator()
+        # A recorded run mints **real** ids by default: a reproducible generator gives the same
+        # `_id` to the same port on every run, which is what makes the checked-in example
+        # observations stable -- and what would make "everything that happened to this plate"
+        # collapse several runs' plates into one. The two are independent knobs, though: an
+        # explicit `id_generator` always wins, so a recorded run can still be reproducible.
+        self.id_generator: IdGenerator = id_generator or (
+            RealUuid4Generator() if trace else SeededUuid4Generator()
+        )
+        # `trace` says this run is recorded; `recorder` says where. Passing a recorder is how a
+        # test watches what a run records without a recording backend installed.
+        self.recorder: Recorder = (
+            recorder if recorder is not None else build_recorder(enabled=trace)
+        )
+        self.mission_id = mission_id
+        self._on_trace_id = on_trace_id
+        #: The id an operator can find this run's record by, once `run` has started it.
+        self.trace_id: str | None = None
         rewritten = inject_id_field(doc)
         boundary = inject_boundary_ids(boundary, rewritten, self.id_generator)
         factory = labcode_backend_factory(
@@ -101,6 +134,7 @@ class LabcodeRunner(RollingRunner):
             on_availability_change=on_availability_change,
             on_cadence_slip=on_cadence_slip,
             op_timeout=op_timeout,
+            recorder=self.recorder,
         )
         # A margin of at least one tick, defaulting to the poll interval (see the class
         # docstring). An explicit value is honoured as given -- including 0, for a caller
@@ -117,6 +151,28 @@ class LabcodeRunner(RollingRunner):
             running_task_margin=running_task_margin,
             **rolling_kwargs,
         )
+
+    def run(self) -> dict:
+        """Drive the workflow to completion, recording the run around it.
+
+        The record is opened here and closed here, whatever happens in between: a run that
+        stopped on a failure records why (the runner's own reason), and one that raised records
+        the exception -- an unclosed record would look like a run that never ended."""
+        self.trace_id = self.recorder.run_started(mission_id=self.mission_id)
+        if self.trace_id is not None and self._on_trace_id is not None:
+            self._on_trace_id(self.trace_id)
+        try:
+            status = super().run()
+        except BaseException as exc:
+            self._finish_record(type(exc).__name__, str(exc))
+            raise
+        failure = self.failure
+        self._finish_record(*((failure.kind, failure.detail) if failure else (None, None)))
+        return status
+
+    def _finish_record(self, error_type: str | None, message: str | None) -> None:
+        self.recorder.run_finished(error_type=error_type, message=message)
+        self.recorder.shutdown()
 
 
 def run_labcode(

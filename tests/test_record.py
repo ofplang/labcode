@@ -8,12 +8,42 @@ installed, which is the point -- these run wherever the tests run.
 
 from __future__ import annotations
 
+import ast
 import sys
+from pathlib import Path
 
 import pytest
 
 from labcode import record
 from labcode.record import NullRecorder, build_recorder, child_recording
+
+#: The modules that drive a run. They may import the seam and nothing else about recording:
+#: swapping the recording backend has to be a change to `labcode.record` and the
+#: implementation beside it, never a change here.
+EXECUTION_PATH = ("backend.py", "runner.py", "run_cli.py", "_child.py")
+
+
+def _imported_modules(source: str) -> list[str]:
+    modules: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            modules.append(base)
+            modules.extend(f"{base}.{alias.name}" for alias in node.names)
+    return modules
+
+
+def test_the_execution_path_imports_no_recording_backend():
+    """The guarantee that makes the seam worth having: whoever swaps the recording backend
+    cannot be expected to notice a stray import in the middle of the run loop, so nothing
+    here is left to notice."""
+    for name in EXECUTION_PATH:
+        source = (Path(record.__file__).parent / name).read_text(encoding="utf-8")
+        for module in _imported_modules(source):
+            assert not module.startswith("opentelemetry"), f"{name} imports {module}"
+            assert module not in ("labcode.otel", "labcode.otel_sila2"), f"{name} imports {module}"
 
 
 def test_a_run_that_is_not_recording_gets_a_recorder_that_does_nothing():

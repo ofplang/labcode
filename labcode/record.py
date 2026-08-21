@@ -55,8 +55,11 @@ ATTR_MODE = "ofp.mode"
 ATTR_SPOT_FROM = "ofp.spot.from"
 ATTR_SPOT_TO = "ofp.spot.to"
 ATTR_TRANSPORTER = "ofp.transporter"
-#: Which physical Object this operation handled (labcode's implicit ``_id``) -- the attribute
-#: that answers "what happened to this plate".
+#: Which physical Objects this operation handled (labcode's implicit ``_id``) -- the attribute
+#: that answers "what happened to this plate". **Always a list**, because one operation may hold
+#: several Object ports and may create an Object as well as consume one, and losing one of them
+#: is the kind of gap nobody notices later. Not an identity of the operation: that is the record's
+#: own span id, and `ATTR_NODE` says which node it came from.
 ATTR_OBJECT_ID = "ofp.object.id"
 #: The plan's interval for this operation, in environment time. Recorded beside the real
 #: timestamps rather than instead of them: the record is of real time, and how far it drifted
@@ -67,6 +70,10 @@ ATTR_TICK_END = "ofp.tick.end"
 #: An operation still running when the run ended. Not a failure of the operation: nobody
 #: observed how it finished, which is a different thing from finishing badly.
 RUN_STOPPED = "run_stopped"
+
+#: An operation the backend reports as failed without saying why (an injected fault). A real
+#: failure carries its own reason code, which is recorded instead.
+OP_FAILED = "failed"
 
 
 class Recorder(Protocol):
@@ -97,9 +104,18 @@ class Recorder(Protocol):
         ...
 
     def op_finished(
-        self, uuid: str, *, error_type: str | None = None, message: str | None = None
+        self,
+        uuid: str,
+        *,
+        error_type: str | None = None,
+        message: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> None:
-        """End the record of operation `uuid`."""
+        """End the record of operation `uuid`.
+
+        `attributes` are what only completion could tell -- the identity of an Object the
+        operation *created*, which is minted when it finishes. They are added to what was
+        recorded at dispatch, so a superset replaces the value set then."""
         ...
 
     def child_env(self) -> Mapping[str, str] | None:
@@ -130,7 +146,12 @@ class NullRecorder:
         return contextlib.nullcontext()
 
     def op_finished(
-        self, uuid: str, *, error_type: str | None = None, message: str | None = None
+        self,
+        uuid: str,
+        *,
+        error_type: str | None = None,
+        message: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> None:
         return None
 
@@ -168,10 +189,17 @@ class _Guarded:
             return contextlib.nullcontext()
 
     def op_finished(
-        self, uuid: str, *, error_type: str | None = None, message: str | None = None
+        self,
+        uuid: str,
+        *,
+        error_type: str | None = None,
+        message: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> None:
         with contextlib.suppress(Exception):
-            self._inner.op_finished(uuid, error_type=error_type, message=message)
+            self._inner.op_finished(
+                uuid, error_type=error_type, message=message, attributes=attributes
+            )
 
     def child_env(self) -> Mapping[str, str] | None:
         try:
