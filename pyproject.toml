@@ -45,13 +45,31 @@ Homepage = "https://github.com/ofplang/labcode"
 Repository = "https://github.com/ofplang/labcode"
 
 [project.optional-dependencies]
-test = ["pytest>=7.0"]
-dev = ["pytest>=7.0", "ruff>=0.16", "mypy>=1.11"]
+# The OpenTelemetry SDK is in `test` and `dev` rather than only in `otel`, for two reasons
+# that are easy to get wrong. The tests assert the *shape* of what a run records, and a
+# skipped test asserts nothing -- so CI has to be able to run them. And mypy is configured
+# with `ignore_missing_imports`, which quietly turns an absent SDK's types into `Any`: that
+# is how two real type errors in `labcode/otel.py` survived until the SDK was installed.
+test = ["pytest>=7.0", "opentelemetry-sdk>=1.20"]
+dev = ["pytest>=7.0", "ruff>=0.16", "mypy>=1.11", "opentelemetry-sdk>=1.20"]
 # Only the SiLA2 integration example needs a SiLA2 client, and it needs it in whatever
 # interpreter runs the scripts: labcode launches each one with `sys.executable`. It is an
 # extra rather than a dependency because labcode itself never speaks SiLA2 -- an environment
 # script does, and only if its author wrote one that does.
 sila2 = ["sila2>=0.14"]
+# Recording a run (`lc run --trace`) is optional, and needs the SDK in whichever interpreter
+# drives the run -- which is also the one running the scripts, since labcode launches each
+# with `sys.executable`. The floors are what the code actually touches: span kinds,
+# `use_span(end_on_exit=...)`, W3C context propagation, and a batch processor with its own
+# schedule delay. All of that was already in 1.20, verified by running the tests against it.
+# The exporter is constructed with no arguments at all, so it asks for nothing newer; it is
+# the HTTP one deliberately, so that nothing here constrains the `grpcio` that `sila2`
+# brings into the same process.
+otel = [
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+]
 
 [project.scripts]
 # The labcode command. Subcommands (`lc validate|schedule|run`) forward to the

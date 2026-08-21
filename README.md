@@ -68,6 +68,10 @@ What `lc run` brings of its own, beyond dispatching:
 - **`flavor: sila2`** — a script that speaks SiLA2 gets its clients opened around it
   (§1.6). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
   installed into whichever interpreter runs the scripts.
+- **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
+  traces: one trace per run, a span per operation, and a span per SiLA2 connection and
+  command measured inside the process that issued it. Off by default; the extra is
+  `pip install labcode[otel]`.
 
 ## Usage
 
@@ -91,6 +95,7 @@ described below.
 lc run <workflow> --env <env>
     [--boundary DOC] [-o OUT] [--boundary-out FILE] [--observation-out FILE]
     [--seconds-per-tick S] [--op-timeout S | --no-op-timeout] [--no-probe]
+    [--trace] [--mission-id ID] [--object-ids seeded|real]
 ```
 
 - `<workflow>` — the portable v0 workflow: *what* happens.
@@ -118,6 +123,12 @@ lc run <workflow> --env <env>
   else 7200 real seconds. The two forms exclude each other.
 - `--no-probe` — ignore the environment's `x-labcode.probe` policies and treat every
   machine as reachable (§1.5). The documents are still validated.
+- `--trace` — record what the run did (see below). Off by default.
+- `--mission-id ID` — the campaign this run belongs to. Recorded with the run and given no
+  meaning by labcode: several runs may share one, and nothing here reads it back.
+- `--object-ids seeded|real` — how Object `_id`s are minted: `seeded` is reproducible (the
+  same workflow yields the same ids every run, which is what keeps the examples' recorded
+  output stable), `real` is unique per run. Unset, it follows `--trace`.
 
 Exit codes: `0` the run completed, `1` it failed (an activity failed, a contract was
 violated, an operation timed out, or a replan became infeasible), `2` a usage or input
@@ -134,6 +145,48 @@ lc run examples/plate_line.workflow.yaml --env examples/plate_line.env.yaml \
 The remaining options tune the replan loop rather than describe the run —
 `--poll-interval`, `--margin`, `--seed`, `--speed`, `--max-ticks`, `--no-validate` — and
 are covered by `lc run --help`.
+
+### Recording a run
+
+`--trace` records what the run did as OpenTelemetry traces. It needs the extra, in the
+interpreter that drives the run — which is also the one that runs the scripts, since
+labcode launches each with `sys.executable`:
+
+```sh
+pip install 'labcode[otel]'
+lc run <workflow> --env <env> --trace --mission-id M-2026-001
+```
+
+One run is one trace, and the id it can be found by is printed to stderr as the run starts:
+
+```text
+run                                  mission.id, and the failure if it stopped on one
+├─ process Seal                      which node, process and mode; the plan's interval;
+│  │                                 which Objects it handled
+│  ├─ sila2.connect                  the address, measured in the process that connected
+│  └─ sila2 SealerControl.Seal       the command, from its start to its real completion
+└─ transport                         the route and the transporter
+```
+
+An operation's span is opened when it is dispatched and closed when a poll finds it
+finished, so its end is late by up to one poll period; what an instrument actually spent is
+in the command spans, which are measured where the commands are issued. `ofp.object.id`
+lists the `_id`s an operation handled, including one it created — which is what makes
+"everything that happened to this plate" a single query.
+
+Where the record goes is configured by the **standard `OTEL_*` environment variables**
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, …), so
+labcode adds no settings of its own; `service.name` falls back to `labcode` if nothing sets
+it. `LC_TRACE_FILE=path` additionally writes the spans to a file as JSON lines, one file per
+process (the name gets the process id), which is how a record can be read without standing
+up a collector.
+
+Two things to know before pointing a run at a collector. **`--trace` makes Object `_id`s
+real rather than reproducible** unless `--object-ids` says otherwise, since a reproducible id
+is the same on every run and would collapse several runs' plates into one. And **a collector
+that is configured but does not answer delays each operation**, by as long as
+OpenTelemetry's own export timeout allows: labcode sets no timeout of its own, so
+`OTEL_EXPORTER_OTLP_TIMEOUT` is the knob, and it belongs to whoever pointed the run there.
 
 ## Examples
 
