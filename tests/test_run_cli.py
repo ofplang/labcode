@@ -449,3 +449,71 @@ def test_cli_unwritable_boundary_out_still_emits_the_status(tmp_path, capsys, mo
     assert code == 2
     assert "cannot write result boundary" in capsys.readouterr().err
     assert out.is_file()
+
+
+# -- recording (`--trace`) --------------------------------------------------------------
+
+
+def test_cli_does_not_record_unless_asked(monkeypatch):
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+
+    assert run_cli.main([WF, "--env", ENV]) == 0
+
+    assert seen["kwargs"]["trace"] is False
+    assert seen["kwargs"]["mission_id"] is None
+    assert seen["kwargs"]["id_generator"] is None, "the runner's own default follows --trace"
+
+
+def test_cli_records_the_run_and_its_mission(monkeypatch):
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+
+    assert run_cli.main([WF, "--env", ENV, "--trace", "--mission-id", "M-2026-001"]) == 0
+
+    assert seen["kwargs"]["trace"] is True
+    assert seen["kwargs"]["mission_id"] == "M-2026-001"
+
+
+def test_cli_prints_the_trace_id_as_the_run_starts(monkeypatch, capsys):
+    # Printed while the run is going, so an operator can follow a long one; the runner calls
+    # this as it opens the record (see test_recording.py).
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+    assert run_cli.main([WF, "--env", ENV, "--trace"]) == 0
+
+    seen["kwargs"]["on_trace_id"]("12d44fa7421caf9e8df5f66c0ef0eb34")
+
+    assert "12d44fa7421caf9e8df5f66c0ef0eb34" in capsys.readouterr().err
+
+
+def test_cli_warns_when_a_mission_has_nowhere_to_go(monkeypatch, capsys):
+    # It reads as "this run is being recorded" to whoever typed it, and nothing else would
+    # say otherwise. The run still goes ahead.
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+
+    assert run_cli.main([WF, "--env", ENV, "--mission-id", "M-2026-001"]) == 0
+
+    assert "--mission-id is only recorded with --trace" in capsys.readouterr().err
+
+
+def test_cli_object_ids_are_independent_of_recording(monkeypatch):
+    from labcode.idgen import RealUuid4Generator, SeededUuid4Generator
+
+    seen: dict = {}
+    _stub_run(monkeypatch, seen)
+
+    # Recorded and reproducible: comparing two runs of the same workflow.
+    assert run_cli.main([WF, "--env", ENV, "--trace", "--object-ids", "seeded"]) == 0
+    assert isinstance(seen["kwargs"]["id_generator"], SeededUuid4Generator)
+
+    # Unrecorded, but ids that are unique across runs.
+    assert run_cli.main([WF, "--env", ENV, "--object-ids", "real"]) == 0
+    assert isinstance(seen["kwargs"]["id_generator"], RealUuid4Generator)
+
+
+def test_cli_rejects_an_unknown_kind_of_object_id():
+    with pytest.raises(SystemExit) as excinfo:
+        run_cli.main([WF, "--env", ENV, "--object-ids", "clever"])
+    assert excinfo.value.code == 2

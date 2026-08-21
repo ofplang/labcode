@@ -11,6 +11,10 @@ It also owns what the operator hears about **availability**: the environment may
 its machines to be checked (``x-labcode.probe``), and this prints each machine whose
 reachability changes, so a run that re-routes -- or stops because it cannot -- says why.
 
+``--trace`` records what the run did (`labcode.record`), and this prints the id the record
+can be found by *as the run starts* -- an operator watching a long run wants to follow it
+while it is going, not learn where it was afterwards.
+
 This module is the ``run`` entry of the ``lc`` dispatcher (see `labcode.cli`); it owns
 argument parsing, I/O, and exit-code mapping, delegating the actual run to the shared
 `ofplang.run.run_workflow` front door with the labcode `backend_factory`.
@@ -40,6 +44,7 @@ from ofplang.run.simulator import SimulatorError
 from labcode.backend import DEFAULT_SECONDS_PER_TICK, FROM_ENVIRONMENT
 from labcode.dialect import validate_dialect
 from labcode.extension import DEFAULT_OP_TIMEOUT
+from labcode.idgen import RealUuid4Generator, SeededUuid4Generator
 from labcode.runner import run_labcode
 
 EXIT_OK = 0
@@ -99,6 +104,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-probe", action="store_true",
         help="ignore the environment's x-labcode.probe policies and treat every machine as"
              " reachable (the document is still validated)",
+    )
+    p.add_argument(
+        "--trace", action="store_true",
+        help="record what this run did (needs the extra: `pip install 'labcode[otel]'`),"
+             " configured by the standard OTEL_* environment variables. Object ids become"
+             " real rather than reproducible unless --object-ids says otherwise",
+    )
+    p.add_argument(
+        "--mission-id", metavar="ID",
+        help="the mission this run belongs to. Recorded with the run and given no meaning"
+             " here -- several runs may share one (only recorded with --trace)",
+    )
+    p.add_argument(
+        # Independent of --trace on purpose: a recorded run may still need to be
+        # reproducible (comparing two runs), and an unrecorded one may still need ids that
+        # are unique across runs.
+        "--object-ids", choices=("seeded", "real"), default=None,
+        help="how Object ids are minted: 'seeded' (reproducible; the default) or 'real'"
+             " (unique per run; the default with --trace)",
     )
     # One operation timeout for the whole lab, in real seconds. The two forms exclude each
     # other: asking for a limit and for no limit in the same breath is a mistake, not a
@@ -196,6 +220,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return EXIT_USAGE
 
+    # A mission with nowhere to go is a mistake worth pointing at: it reads as "this run is
+    # being recorded" to whoever typed it, and nothing else would say otherwise. It does not
+    # stop the run, and it deliberately does not turn recording on -- recording is something
+    # to ask for, since it changes what ids the run mints and talks to something outside.
+    if args.mission_id and not args.trace:
+        print("lc run: warning: --mission-id is only recorded with --trace", file=sys.stderr)
+
     # Shared workflow front door (ofplang-validate + capability gate; validate skippable).
     fd = front_door_check(args.workflow, validate=not args.no_validate)
     if not fd.ok:
@@ -251,6 +282,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    def report_trace_id(trace_id: str) -> None:
+        print(f"lc run: recording this run as trace {trace_id}", file=sys.stderr)
+
     def probe_note() -> str:
         return (
             f" (unreachable at the probe: {', '.join(sorted(unreachable))})"
@@ -301,6 +335,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 None if args.no_op_timeout
                 else FROM_ENVIRONMENT if args.op_timeout is None
                 else args.op_timeout
+            ),
+            trace=args.trace,
+            mission_id=args.mission_id,
+            on_trace_id=report_trace_id,
+            # Unset follows --trace (the runner's default); named, it wins either way.
+            id_generator=(
+                {"seeded": SeededUuid4Generator, "real": RealUuid4Generator}[args.object_ids]()
+                if args.object_ids
+                else None
             ),
         )
     except (yaml.YAMLError, ContractSyntaxError) as exc:
