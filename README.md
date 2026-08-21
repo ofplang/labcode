@@ -135,6 +135,14 @@ The remaining options tune the replan loop rather than describe the run —
 `--poll-interval`, `--margin`, `--seed`, `--speed`, `--max-ticks`, `--no-validate` — and
 are covered by `lc run --help`.
 
+## Examples
+
+[`examples/`](examples/README.md) holds three worked runs: `plate_line`, an
+Object-bearing line driven entirely by environment scripts and runnable with no
+hardware, and `sila2_seal` and `sila2_plate_cycle`, which drive the reference lab's
+SiLA2 servers for real. `sila2_seal` also walks through what a run does when a
+machine stops answering — before an operation, and in the middle of one.
+
 ## License
 
 MIT
