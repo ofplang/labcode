@@ -49,7 +49,12 @@ from opentelemetry.trace import Span, Status, StatusCode
 
 from labcode.otel_sila2 import ATTR_ERROR_TYPE, OtelSink
 from labcode.record import ATTR_MISSION, RUN_STOPPED, SPAN_RUN
-from labcode.sila2_instrument import instrument_sila2, uninstrument_sila2
+from labcode.sila2_instrument import (
+    Targets,
+    instrument_sila2,
+    resolve_targets,
+    uninstrument_sila2,
+)
 
 #: How the parent tells a child which record to join (the W3C names, in the conventional
 #: environment-variable spelling). Nothing outside this module knows them.
@@ -287,11 +292,25 @@ def resume_from_env(
     if not traceparent:
         return None
 
+    # 🔴 The order of the next two steps is load-bearing, for a reason nothing about
+    # recording would suggest. `sila2` requires protobuf's **pure-Python** implementation --
+    # it ships a generated `SiLAFramework_pb2` and generates another at runtime for each
+    # server's features, and the C implementation rejects the second registration
+    # ("duplicate file name SiLAFramework.proto") -- and the only way it can get that is by
+    # setting an environment variable when it is imported, which protobuf reads *the first
+    # time it is imported* (see `sila2/__init__.py`). The exporter built below imports
+    # protobuf. So `sila2` has to be imported first, which resolving the intervention points
+    # does; otherwise every SiLA2 script in a recorded run fails to open a client at all.
+    # A test pins this order, because it is not one anybody would keep by intuition.
+    targets: Targets | None = None
+    with contextlib.suppress(Exception):
+        targets = resolve_targets()
+
     resolved, owned = (provider, False) if provider is not None else build_provider(child=True)
     carrier = {"traceparent": traceparent}
     tracestate = environment.get(TRACESTATE)
     if tracestate:
         carrier["tracestate"] = tracestate
     token = context.attach(propagate.extract(carrier))
-    instrument_sila2(OtelSink(tracer=resolved.get_tracer("labcode.sila2")))
+    instrument_sila2(OtelSink(tracer=resolved.get_tracer("labcode.sila2")), targets=targets)
     return ChildSession(provider=resolved, owned=owned, token=token)

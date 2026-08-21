@@ -201,3 +201,43 @@ def test_the_file_exporter_writes_one_line_per_span_and_names_the_process(tmp_pa
     assert lines[0]["attributes"][ATTR_NODE] == "seal#0"
     assert lines[0]["parent_span_id"] == lines[1]["span_id"]
     assert lines[1]["parent_span_id"] is None
+
+
+def test_sila2_is_imported_before_the_exporter_touches_protobuf(monkeypatch):
+    """The order in `resume_from_env` that makes a recorded SiLA2 run possible at all.
+
+    `sila2` requires protobuf's pure-Python implementation and can only ask for it as it is
+    imported, before protobuf is; the exporter imports protobuf. Get this backwards and every
+    SiLA2 script in a recorded run fails to open a client -- which no test without a real
+    instrument would notice, and which nobody would keep right by intuition. So it is pinned
+    here: resolving the intervention points (which imports `sila2`) comes first.
+    """
+    from labcode import otel
+
+    order: list[str] = []
+    provider = TracerProvider()
+
+    def resolve():
+        order.append("sila2")
+        return "targets"
+
+    def build(**kwargs):
+        order.append("provider")
+        return provider, False
+
+    def instrument(sink, targets=None):
+        order.append("instrument")
+        assert targets == "targets", "the already-resolved targets are reused, not re-imported"
+        return True
+
+    monkeypatch.setattr(otel, "resolve_targets", resolve)
+    monkeypatch.setattr(otel, "build_provider", build)
+    monkeypatch.setattr(otel, "instrument_sila2", instrument)
+
+    session = otel.resume_from_env(
+        {otel.TRACEPARENT: "00-12d44fa7421caf9e8df5f66c0ef0eb34-c540f0d2e189367f-01"}
+    )
+    assert session is not None
+    session.finish()
+
+    assert order == ["sila2", "provider", "instrument"]
