@@ -106,15 +106,22 @@ class NotFinished(Exception):
 
 
 class FakeClient:
-    """Stands in for `SilaClient`: constructing one *is* the connection."""
+    """Stands in for `SilaClient`: constructing one *is* the connection.
 
-    def __init__(self, address, port, *, insecure=False, log=None, fail=None) -> None:
+    `during_init` stands in for what `sila2` does while it builds one -- fetching the
+    definition of every feature the server implements, as commands."""
+
+    def __init__(
+        self, address, port, *, insecure=False, log=None, fail=None, during_init=None
+    ) -> None:
         if log is not None:
             log.append(("connecting", address))
         if fail is not None:
             raise fail
         self.address = address
         self.port = port
+        if during_init is not None:
+            during_init(self)
 
 
 class FakeCommandDef:
@@ -490,3 +497,46 @@ def test_the_real_sila2_still_has_the_intervention_points():
     command = SiLAServiceFeature["GetFeatureDefinition"]
     assert command._identifier == "GetFeatureDefinition"
     assert str(command.fully_qualified_identifier).endswith("/Command/GetFeatureDefinition")
+
+
+# -- what building a client is not measured for -----------------------------------------
+
+
+def _client_that_fetches(sink: RecordingSink, results: list) -> FakeClient:
+    """A client whose construction issues a command, as `sila2` does when it fetches the
+    feature definitions of the server it has just reached."""
+
+    def during_init(client):
+        feature = FakeFeature("SiLAService", client)
+        command = FakeUnobservable(
+            feature, FakeCommandDef("GetFeatureDefinition"), log=sink.log, result="<feature/>"
+        )
+        results.append(command())
+
+    return FakeClient("127.0.0.1", 50057, insecure=True, log=sink.log, during_init=during_init)
+
+
+def test_what_a_client_fetches_to_build_itself_is_not_a_unit(sink):
+    """Half of a real run's units were these, and a gRPC instrumentation would record the same
+    RPCs under the connection -- so they are left to it. The connection still is a unit, and
+    what they cost is most of it."""
+    results: list = []
+
+    _client_that_fetches(sink, results)
+
+    assert results == ["<feature/>"], "the fetch itself still happens"
+    assert [handle.name for handle in sink.handles] == [SPAN_CONNECT]
+
+
+
+def test_a_command_after_the_client_is_built_is_still_a_unit(sink):
+    """The suppression is a stretch of time, not a name: what the operation itself asks the
+    instrument to do is measured as it always was."""
+    results: list = []
+    client = _client_that_fetches(sink, results)
+    feature = FakeFeature("SealerControl", client)
+    command = FakeUnobservable(feature, FakeCommandDef("Seal", SEAL_FQI), log=sink.log, result="ok")
+
+    assert command() == "ok"
+
+    assert [handle.name for handle in sink.handles] == [SPAN_CONNECT, SEAL]

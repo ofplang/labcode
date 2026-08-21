@@ -6,6 +6,13 @@ themselves, and takes **one connection and one command** as the units worth meas
 Feature or Command therefore becomes measurable by existing, with no telemetry code added to any
 script.
 
+**Not everything a client does is worth a unit.** Building one makes `sila2` fetch the definition
+of every feature the server implements -- nine RPCs for one machine in the reference lab, and over
+half of everything a real run recorded. Those are not measured (`_building_a_client`), because
+they are the same RPCs a gRPC instrumentation records, and it records them *under* the connection;
+measuring them here as well would count one call twice. What they cost stays visible as most of
+`sila2.connect`, which is a unit.
+
 **It does not know where the record goes.** Turning a measured unit into a record is the `Sink`'s
 job (`labcode.otel_sila2` is the OpenTelemetry one); what lives here is only the *semantics* --
 which calls are worth measuring, when one begins, and when it has really ended. Replacing the
@@ -335,6 +342,37 @@ def _active(handle: Any) -> Iterator[None]:
                 entered.__exit__(None, None, None)
 
 
+#: Whether this thread is inside a client's construction. Per thread, because a script may open
+#: clients from several.
+_building = threading.local()
+
+
+@contextlib.contextmanager
+def _building_a_client() -> Iterator[None]:
+    """The stretch in which `sila2` is building a client, during which **commands are not
+    measured**.
+
+    What happens in there is the fetching of every feature definition the server implements --
+    nine RPCs for one machine in the reference lab, and 54 of the 101 units one real run
+    recorded before this. They are left to the gRPC instrumentation that records the same RPCs,
+    under the connection they belong to; measuring them here as well would be one call counted
+    twice, and an RPC path is a truer name for a transport than a command name is. What they
+    cost stays visible as most of `sila2.connect`.
+
+    Recognised by *when* they happen rather than by what they are called: a construction is a
+    fact, whereas a name is a guess about what `sila2` fetches in there."""
+    depth = getattr(_building, "depth", 0)
+    _building.depth = depth + 1
+    try:
+        yield
+    finally:
+        _building.depth = depth
+
+
+def _inside_a_client_build() -> bool:
+    return getattr(_building, "depth", 0) > 0
+
+
 def _remember(handle: Any) -> None:
     state = _state
     if state is None or handle is None:
@@ -438,9 +476,15 @@ def _patch_client_init(state: _State) -> None:
             attributes[ATTR_ADDRESS] = str(address)
         if port is not None:
             attributes[ATTR_PORT] = port
+        # Always measured: it is a cost every operation pays and cannot avoid (0.4-0.9 s against
+        # the reference lab, 16% of one run's wall clock), it is not recoverable from anything
+        # else the record holds, and it is what a later gRPC instrumentation hangs its per-RPC
+        # spans from.
         handle = _start(SPAN_CONNECT, attributes)
         try:
-            with _active(handle):
+            # Everything `sila2` fetches to build the client happens in here, which is how
+            # those commands are recognised (`_building_a_client`).
+            with _active(handle), _building_a_client():
                 original(self, *args, **kwargs)
         except BaseException as exc:
             _end(handle, error_type=_error_type(exc), message=str(exc))
@@ -457,6 +501,8 @@ def _patch_unobservable_call(state: _State) -> None:
 
     @functools.wraps(original)
     def __call__(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if _inside_a_client_build():
+            return original(self, *args, **kwargs)  # not a unit; see `_building_a_client`
         name, attributes = _command_span(self)
         handle = _start(name, attributes)
         try:
@@ -478,6 +524,8 @@ def _patch_observable_call(state: _State) -> None:
 
     @functools.wraps(original)
     def __call__(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if _inside_a_client_build():
+            return original(self, *args, **kwargs)  # not a unit; see `_building_a_client`
         name, attributes = _command_span(self)
         handle = _start(name, attributes)
         try:
