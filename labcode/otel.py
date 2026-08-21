@@ -2,9 +2,9 @@
 
 This is the half that knows OpenTelemetry. It sets up the provider, records the run and its
 operations, hands a child process what it needs to join the same trace, and -- in that child --
-resumes from it and instruments the SiLA2 client (`labcode.sila2_instrument` via
-`labcode.otel_sila2`). Replacing it means writing one more module like this one and adding two
-lines to `labcode.record`; see that module's docstring.
+resumes from it and instruments the SiLA2 client (`labcode.sila2_instrument` and the gRPC calls
+underneath it, both via `labcode.otel_sila2`). Replacing it means writing one more module like
+this one and adding two lines to `labcode.record`; see that module's docstring.
 
 **Configuration is OpenTelemetry's own.** The endpoint, headers, timeouts, resource attributes
 and sampling all come from the standard ``OTEL_*`` environment variables, so an operator
@@ -47,7 +47,7 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import Span, Status, StatusCode
 
-from labcode.otel_sila2 import ATTR_ERROR_TYPE, OtelSink
+from labcode.otel_sila2 import ATTR_ERROR_TYPE, OtelSink, instrument_grpc, uninstrument_grpc
 from labcode.record import ATTR_MISSION, RUN_STOPPED, SPAN_RUN
 from labcode.sila2_instrument import (
     PROTOBUF_ENV,
@@ -281,6 +281,7 @@ class ChildSession:
 
     def finish(self) -> None:
         uninstrument_sila2()
+        uninstrument_grpc()
         context.detach(self.token)
         if self.owned:
             self.provider.shutdown()  # flushes what has not been exported yet
@@ -315,4 +316,7 @@ def resume_from_env(
         carrier["tracestate"] = tracestate
     token = context.attach(propagate.extract(carrier))
     instrument_sila2(OtelSink(tracer=resolved.get_tracer("labcode.sila2")), targets=targets)
+    # Here, rather than anywhere later: what it wraps is the factory a channel comes from, so
+    # every client the script opens has to come after it. This is the process's startup.
+    instrument_grpc()
     return ChildSession(provider=resolved, owned=owned, token=token)

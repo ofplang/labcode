@@ -69,9 +69,9 @@ What `lc run` brings of its own, beyond dispatching:
   (§1.6). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
   installed into whichever interpreter runs the scripts.
 - **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
-  traces: one trace per run, a span per operation, and a span per SiLA2 connection and
-  command measured inside the process that issued it. Off by default; the extra is
-  `pip install labcode[otel]`.
+  traces: one trace per run, a span per operation, and — measured inside the process that
+  issued them — a span per SiLA2 connection, per command, and per gRPC call underneath
+  either. Off by default; the extra is `pip install labcode[otel]`.
 
 ## Usage
 
@@ -157,14 +157,17 @@ pip install 'labcode[otel]'
 lc run <workflow> --env <env> --trace --mission-id M-2026-001
 ```
 
-One run is one trace, and the id it can be found by is printed to stderr as the run starts:
+One run is one trace, and the id it can be found by is printed to stderr as the run
+starts (`lc run: recording this run as trace …`). What it holds:
 
 ```text
 run                                  mission.id, and the failure if it stopped on one
 ├─ process Seal                      which node, process and mode; the plan's interval;
 │  │                                 which Objects it handled
 │  ├─ sila2.connect                  the address, measured in the process that connected
+│  │  └─ /…/SiLAService/GetFeatureDefinition   one per feature, × however many
 │  └─ sila2 SealerControl.Seal       the command, from its start to its real completion
+│     └─ /…/SealerControl/Seal       the round trip that started it
 └─ transport                         the route and the transporter
 ```
 
@@ -173,6 +176,16 @@ finished, so its end is late by up to one poll period; what an instrument actual
 in the command spans, which are measured where the commands are issued. `ofp.object.id`
 lists the `_id`s an operation handled, including one it created — which is what makes
 "everything that happened to this plate" a single query.
+
+The innermost layer is the gRPC calls themselves, each under the connection or the command
+that issued it — so what a connection spends is broken down into the feature definitions it
+had to fetch, and a command's span separates its round trip from the time the instrument
+then took. It needs `grpcio`, which arrives with the `sila2` extra; without it the record is
+the same minus that layer. Two things it does not do: an observable command's
+execution-info subscription is **not** recorded (it is read on a thread of `sila2`'s own,
+where it would land in a trace of its own, and its duration is the command's anyway), and
+each recorded call **sends the trace context to the instrument** in its gRPC metadata, which
+a SiLA2 server ignores as it does any key that is not SiLA Client Metadata.
 
 Where the record goes is configured by the **standard `OTEL_*` environment variables**
 (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, …), so

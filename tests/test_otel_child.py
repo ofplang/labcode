@@ -167,3 +167,43 @@ def test_a_recording_child_gets_the_protobuf_implementation_sila2_needs(tmp_path
 
     names = [span["name"] for span in _spans(tmp_path)]
     assert "protobuf python" in names, f"the child resolved something else: {names}"
+
+
+def test_a_recording_child_has_its_grpc_calls_instrumented(tmp_path, monkeypatch):
+    """The RPCs underneath a SiLA2 call are recorded in the child, and the wrapping has to be in
+    place before the script opens a client -- so what this checks is that the *startup* did it,
+    not that some later call did. The child reports what it found, as a span name."""
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    pytest.importorskip("grpc", reason="grpcio is not installed")
+    pytest.importorskip(
+        "opentelemetry.instrumentation.grpc", reason="the gRPC instrumentation is not installed"
+    )
+    from labcode.runner import LabcodeRunner
+
+    environment = tmp_path / "env.yaml"
+    environment.write_text(
+        TENV.read_text(encoding="utf-8").replace(
+            "moved = (view, from_spot, to_spot, transporter)",
+            "import grpc; "
+            "from opentelemetry import trace; "
+            "state = 'wrapped' if hasattr(grpc.insecure_channel, '__wrapped__') else 'plain'; "
+            "trace.get_tracer('child').start_span('grpc ' + state).end()",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LC_TRACE_FILE", str(tmp_path / "record.jsonl"))
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
+
+    clock = FakeClock()
+    runner = LabcodeRunner(
+        TWF, str(environment), seconds_per_tick=0.001, monotonic=clock.monotonic,
+        sleep=clock.sleep, random_seed=0, running_task_margin=1, trace=True,
+    )
+    try:
+        runner.run()
+    finally:
+        runner.sim.close()
+    assert not runner.failed
+
+    names = [span["name"] for span in _spans(tmp_path)]
+    assert "grpc wrapped" in names, f"the child's gRPC calls are not recorded: {names}"

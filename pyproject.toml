@@ -50,8 +50,22 @@ Repository = "https://github.com/ofplang/labcode"
 # skipped test asserts nothing -- so CI has to be able to run them. And mypy is configured
 # with `ignore_missing_imports`, which quietly turns an absent SDK's types into `Any`: that
 # is how two real type errors in `labcode/otel.py` survived until the SDK was installed.
-test = ["pytest>=7.0", "opentelemetry-sdk>=1.20"]
-dev = ["pytest>=7.0", "ruff>=0.16", "mypy>=1.11", "opentelemetry-sdk>=1.20"]
+# The gRPC instrumentation is here for the first of those reasons, and it is asked for
+# *with* its own `instruments` extra -- meaning `grpcio` -- because what the tests check is
+# that a server-streaming call is passed through untouched, and there is no interceptor to
+# hand a call to without the library it intercepts.
+test = [
+    "pytest>=7.0",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-instrumentation-grpc[instruments]>=0.41b0",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.16",
+    "mypy>=1.11",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-instrumentation-grpc[instruments]>=0.41b0",
+]
 # Only the SiLA2 integration example needs a SiLA2 client, and it needs it in whatever
 # interpreter runs the scripts: labcode launches each one with `sys.executable`. It is an
 # extra rather than a dependency because labcode itself never speaks SiLA2 -- an environment
@@ -65,10 +79,17 @@ sila2 = ["sila2>=0.14"]
 # The exporter is constructed with no arguments at all, so it asks for nothing newer; it is
 # the HTTP one deliberately, so that nothing here constrains the `grpcio` that `sila2`
 # brings into the same process.
+# The gRPC instrumentation is what puts each RPC under the connection or the command that
+# issued it -- the feature definitions a connection fetches, and a command's real round
+# trip. It brings no `grpcio` of its own (its floor on one is an extra), which is right
+# here: the `grpcio` in this process is whichever one `sila2` brought. `0.41b0` is the
+# oldest release with the `filter_` this uses, and it accepts `opentelemetry-api ~= 1.12`,
+# so it does not pull the floors above upwards.
 otel = [
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "opentelemetry-instrumentation-grpc>=0.41b0",
 ]
 
 [project.scripts]
