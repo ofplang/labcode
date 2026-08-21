@@ -11,7 +11,7 @@ The instrument arguments come from the delivery scripts in `ScriptsForIntegratio
 (snip_xpeel.py, snip_plateloc.py, snip_atc.py, snip_microplate_centrifuge.py), so what the
 instruments are asked to do is what those ask of the real hardware.
 
-VERIFIED AGAINST: ofplang-sila2-backend v0.3.0 (commit 0c3c4c8). That lab is a *reference*,
+VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
 not a requirement: the environment speaks plain SiLA2 and can be pointed at real instruments
 by changing the hosts and ports in it. The version is recorded so a run without hardware has
 something known to reproduce against -- it is deliberately NOT asserted on, because checking a

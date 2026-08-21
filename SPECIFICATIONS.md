@@ -306,7 +306,7 @@ x-labcode:
     - transporter: arm
       from: plateloc.stage
       to: thermal_cycler.block
-      duration: 8
+      duration: 43
       x-labcode:
         script:
           language: python
@@ -317,9 +317,10 @@ x-labcode:
 
             cycler = sila2_clients["thermal_cycler"].AutomatedThermalCyclerController
             settle(cycler.OpenLid(), "OpenLid")
-            arm = sila2_client.TrolleyArmProvider   # the transporter: still the first client
-            arm.Pick(LocationSpecifier="plateloc.stage")
-            arm.Place(LocationSpecifier="thermal-cycler.block")
+            # The transporter is still the first client. Its own names for the places it
+            # serves are stations, not `device.spot`, so a route writes them out.
+            labware = sila2_client.LabwareService
+            settle(labware.Transfer(SourceStation="Base4", DestinationStation="Base6"), "Transfer")
   ```
 - **Connections last one operation**, opened before the code runs and closed after it — on
   any exit, including a `return` or an exception, and including a *later* connection

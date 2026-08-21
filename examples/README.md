@@ -100,7 +100,7 @@ and the produced value comes back through labcode's partial outputs.
 - [`sila2_seal.workflow.yaml`](sila2_seal.workflow.yaml) is portable ofplang v0: one Plate in,
   the *same* Plate out (`objects.map`), plus the Pure Data reading `cycle_count`.
 - [`sila2_seal.wrapped.env.yaml`](sila2_seal.wrapped.env.yaml) drives a plate sealer over SiLA2
-  and a transport arm's `Pick`/`Place`, written the **recommended** way — `flavor: sila2`.
+  and a transport arm's `Transfer`, written the **recommended** way — `flavor: sila2`.
   `cycle_count` is **a real reading**: the script asks the instrument how many cycles it has
   performed, and the number goes up because this run performed one.
 - [`sila2_seal.boundary.yaml`](sila2_seal.boundary.yaml) puts the Plate in and takes it out at
@@ -146,8 +146,11 @@ Note what `settle` is *not*. Its timeout is in real seconds, unrelated to the mo
 SiLA2 command cannot be stopped from here, so a timeout fails the operation while the
 instrument carries on, leaving the lab for the operator to restore.
 
-Spot names still have to be the ones the lab declares — a name it does not know fails the move
-at the moment of use. See [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4 and §1.6.
+The names a script hands a machine still have to be the ones that machine knows — for the arm
+those are its **station** names (`Base1`, `Base4`, …), not labcode's `device.spot`, and one it
+does not know fails with `InvalidStation` at the moment of use. See
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4 and §1.6, and the plate-cycle section below
+for why the two vocabularies do not meet anywhere but in a transport script.
 
 ### If a machine stops answering
 
@@ -182,8 +185,11 @@ polls forever. A script that knows its own commands should still bound them itse
 
 ### Prerequisites
 
-**Verified against [ofplang-sila2-backend](https://github.com/kaizu/sila2-demo) v0.3.0 (commit
-`0c3c4c8`)** — a virtual lab of mock SiLA2 instrument servers. That lab is a *reference, not a
+**Verified against [ofplang-sila2-backend](https://github.com/kaizu/sila2-demo) branch `ardea`
+(commit `de3c4fd`)** — a virtual lab of mock SiLA2 instrument servers. That branch is where its
+transporter became a mock of **Ardea**, a machine that exists, serving the real one's nine
+Feature definitions unchanged; it is not merged, so a checkout of `main` will not run these
+examples. That lab is a *reference, not a
 requirement*: the scripts speak plain SiLA2, so pointing them at real instruments is a matter
 of changing the host and port in the environment. The version is recorded so a run without
 hardware has something known to reproduce against; it is deliberately not asserted on, since
@@ -237,10 +243,11 @@ The two environments are interchangeable today but are **not promised to stay eq
 `flavor: sila2` one is the example that follows the dialect.
 
 > **A device id cannot contain a hyphen.** v0 identifiers are `[A-Za-z_][A-Za-z0-9_]*`, which
-> rules out the reference lab's `seal-remover`, `thermal-cycler` and `trolley-arm`. This
-> example sidesteps it by using `plateloc`; [`sila2_plate_cycle`](#sila2_plate_cycle--the-whole-circuit-four-instruments-and-one-plate)
-> below cannot, and translates the names in its transport scripts instead. (The arm is fine
-> either way: labcode names the transporter `arm` and never names the arm's own spot.)
+> rules out the reference lab's `seal-remover` and `thermal-cycler`. This example sidesteps it by
+> using `plateloc`; [`sila2_plate_cycle`](#sila2_plate_cycle--the-whole-circuit-four-instruments-and-one-plate)
+> below renames them to `seal_remover` and `thermal_cycler`. It costs nothing either way now,
+> because no script spells a lab location: the arm is told a **station** name, and labcode's
+> device ids never reach it.
 
 ## `sila2_plate_cycle` — the whole circuit: four instruments and one plate
 
@@ -279,28 +286,40 @@ labcode schedules it and dispatches each step, and each script only says what on
 
 ### Two things worth reading the environment for
 
-**Hyphens.** The lab's locations are `seal-remover.stage` and `thermal-cycler.block`, which no
-v0 identifier can spell. The environment names those devices `seal_remover` and
-`thermal_cycler`, and each transport script writes the lab's names out literally rather than
-passing `from_spot` / `to_spot` through:
+**Two vocabularies for the same places.** labcode addresses a place as `device.spot` —
+`plateloc.stage` — because that is what a workflow reasons about: which machine holds the
+Object. The arm addresses the same places as **stations**: `Base1`, `Base2`, … are the
+machine's own names for the positions it can serve, and they are what `Transfer` takes. On the
+real Ardea those names index its motion configuration, which records where each station sits on
+the rail and which robot tasks reach it — so they are the only thing the arm can be told.
+
+A transport script is where the two meet, and it writes its station names out literally.
+Nothing derives one from the other, because no rule does:
 
 ```yaml
 code: |
-  # labcode's plateloc.stage -> thermal_cycler.block.
-  arm = sila2_client.TrolleyArmProvider
-  arm.Pick(LocationSpecifier="plateloc.stage")
-  arm.Place(LocationSpecifier="thermal-cycler.block")
+  # labcode's plateloc.stage -> thermal_cycler.block = the arm's Base4 -> Base6.
+  from labcode.sila2_commands import settle
+
+  labware = sila2_client.LabwareService
+  settle(labware.Transfer(SourceStation="Base4", DestinationStation="Base6"), "Transfer")
 ```
 
-A route is one fixed pair of spots, so there is nothing to compute, and the name the lab
-actually receives is the name written in the file. Deriving it instead — `_` → `-` — would
-read as a rule, and it is not one: it is a coincidence of this lab's naming, and a real lab may
-have a device legitimately called `foo_bar`. The cost is that the route and the strings can
-drift apart if one is edited without the other; the lab is what catches that, since a name it
-does not know fails the move with `unknown_location`.
+A route is one fixed pair of places, so there is nothing to compute either. The lab's own server
+holds the same map (in `ARDEA_STATIONS`) and is what turns a station name into a place. The cost
+is that the route and the names can drift apart if one is edited without the other; the lab is
+what catches that, since a station name it does not know fails with `InvalidStation`.
 
-Only transport scripts face this, because only they name spots. The lab is *not* renamed to
-suit labcode: the dependency runs one way, and the lab's world model is not labcode's to edit.
+Note also that **a transfer is one command but an observable one**, so `settle` is not optional
+in a transport script either: without it the script reports success while the plate is still in
+the air. That is new — the arm this replaced moved a plate with two *unobservable* commands, so
+its transports had nothing to wait for.
+
+A smaller mismatch sits underneath: the device ids are not the lab's device names either, since
+v0 identifiers cannot contain a hyphen and the lab's devices are `seal-remover` and
+`thermal-cycler`. Hence `seal_remover` and `thermal_cycler`. That one now costs nothing, because
+no script spells a lab location any more. The lab is *not* renamed to suit labcode: the
+dependency runs one way, and the lab's world model is not labcode's to edit.
 
 **Lids and doors.** In the lab's world model a closed lid or door makes that spot inaccessible,
 and an item cannot be moved into or out of an inaccessible spot. So the transport that delivers
@@ -326,9 +345,8 @@ x-labcode:
 
       cycler = sila2_clients["thermal_cycler"].AutomatedThermalCyclerController
       settle(cycler.OpenLid(), "OpenLid")
-      arm = sila2_client.TrolleyArmProvider      # the transporter: still the first client
-      arm.Pick(LocationSpecifier="plateloc.stage")
-      arm.Place(LocationSpecifier="thermal-cycler.block")
+      labware = sila2_client.LabwareService   # the transporter: still the first client
+      settle(labware.Transfer(SourceStation="Base4", DestinationStation="Base6"), "Transfer")
 ```
 
 Closed-at-rest is what a real instrument does, and it is what makes this example *check*
@@ -353,18 +371,21 @@ particular lid or door state to start from: the transports open what they need.
 
 Verified against both of the reference lab's timing profiles at `--seconds-per-tick 1.0`.
 Against `command_durations.realistic.yaml` — the profile the environment's durations are
-measured on — the circuit takes a makespan of about 110, and each step lands within its
+measured on — the circuit takes a makespan of about 260–290 and each step lands within its
 declared duration; against the default profile (which waits for nothing) every op finishes
-early and the run still completes.
+early and the run still completes. The realistic run takes about five minutes of wall clock,
+most of it the arm: a `Transfer` is 30 s in that profile, and there are five of them.
 
 Those durations are the **measured operation times, not the instrument's**. An op also costs
-labcode a child process (~2 s), a SiLA2 client per machine it connects to (~1 s each, since
-building one fetches every Feature definition), and one poll interval per `settle` that
-finishes mid-interval. Both variable parts show: `thermal_cycle` turns 10 s of instrument time
-into 17 because all five of its commands are short, and the cycler → centrifuge move costs 17
-for 11 s of instrument time, opening two instruments and closing one across three clients.
-Declaring the instrument's time alone would under-run every op, and the scheduler would keep
-trying to dispatch a successor onto a device still finishing.
+labcode a child process (~2 s), a SiLA2 client per machine it connects to, and one poll interval
+per `settle` that finishes mid-interval. All three show: `thermal_cycle` turns 10 s of
+instrument time into 17 because all five of its commands are short; the cycler → centrifuge move
+costs 51 for 41 s of instrument time, opening two instruments and closing one across three
+clients; and **the arm's client is the expensive one** — ~1 s buys a single-feature instrument,
+but Ardea serves nine Feature definitions and a client fetches all of them, measured 3–7 s.
+Every route pays that, which is why a plain move is 40 and not 33. Declaring the instrument's
+time alone would under-run every op, and the scheduler would keep trying to dispatch a successor
+onto a device still finishing.
 
 ### Produce the outputs
 
@@ -392,8 +413,9 @@ python examples/render_sila2_plate_cycle.py
 It is a producer, not a check: it asserts nothing, and `run_sila2_plate_cycle.py` is what says
 whether the example still works. Unlike `render_plate_line.py` it needs the lab, since its
 scripts issue real commands. The committed copies were produced on the realistic profile
-(makespan 110); every op runs out-of-process on a wall clock against real servers, so the exact
-times vary between runs while the sequence, the identities and the produced values do not.
+(makespan 261); every op runs out-of-process on a wall clock against real servers, so the exact
+times vary between runs — by tens of seconds, now that five 30 s transfers dominate — while the
+sequence, the identities and the produced values do not.
 
 ### Run every SiLA2 example
 

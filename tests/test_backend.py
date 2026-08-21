@@ -207,13 +207,13 @@ def test_transport_resolver_wraps_a_sila2_flavor_script():
         "transporters": [{"id": "arm", "x-labcode": {"connection": {**CONNECTION, "port": 50057}}}],
         "transports": [{"transporter": "arm", "from": "a", "to": "b", "x-labcode": {"script": {
             "language": "python", "flavor": "sila2",
-            "code": "sila2_client.Pick(LocationSpecifier=from_spot)",
+            "code": "sila2_client.LabwareService.Transfer(SourceStation=\"Base1\")",
         }}}],
     }
     code = make_transport_resolver(env)("arm", "a", "b")
     assert code is not None
     assert "('arm', '127.0.0.1', 50057, True)" in code
-    assert "sila2_client.Pick(LocationSpecifier=from_spot)" in code
+    assert 'sila2_client.LabwareService.Transfer(SourceStation="Base1")' in code
 
 
 def _sila2_transport_env(source: str, destination: str, **script) -> dict:

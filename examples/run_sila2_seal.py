@@ -12,7 +12,7 @@ once and labcode opens the clients, and `sila2_seal.env.yaml` is the `raw` refer
 each script connects for itself. The checks below assert on the run's outcome, which the two
 share, so the same code checks both.
 
-VERIFIED AGAINST: ofplang-sila2-backend v0.3.0 (commit 0c3c4c8). That lab is a *reference*,
+VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
 not a requirement: both environments speak plain SiLA2 and can be pointed at real instruments
 by changing the host and port in them. The version is recorded so a run without hardware has
 something known to reproduce against -- it is deliberately NOT asserted on, because checking

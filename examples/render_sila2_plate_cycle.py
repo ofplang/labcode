@@ -31,7 +31,7 @@ It writes four artifacts under examples/outputs/:
   - sila2_plate_cycle.boundary.yaml    -- the result boundary (the three readings and the
                                           returned plate, as `--boundary-out` writes it)
 
-The committed copies were produced against ofplang-sila2-backend v0.3.0 on its
+The committed copies were produced against ofplang-sila2-backend branch `ardea` on its
 `command_durations.realistic.yaml` profile, which is the one the environment's durations are
 written for. Because every op runs out-of-process on a wall clock against real servers, the
 exact times (and the makespan) vary between runs; the sequence of activities, the identities

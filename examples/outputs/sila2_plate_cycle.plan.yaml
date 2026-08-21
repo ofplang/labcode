@@ -1,6 +1,6 @@
 time:
   unit: second
-now: 110
+now: 261
 interface:
   inputs:
     plate: station.slot1
@@ -9,7 +9,7 @@ interface:
 activities:
 - kind: transport
   start: 0
-  end: 2
+  end: 33
   from_spot: station.slot1
   to_spot: seal_remover.stage
   transporter: arm
@@ -23,8 +23,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 2
-  end: 14
+  start: 33
+  end: 45
   process: peel
   mode: m0
   node:
@@ -37,8 +37,8 @@ activities:
     plate: seal_remover.stage
   status: completed
 - kind: transport
-  start: 14
-  end: 16
+  start: 45
+  end: 78
   from_spot: seal_remover.stage
   to_spot: plateloc.stage
   transporter: arm
@@ -53,8 +53,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 16
-  end: 33
+  start: 78
+  end: 95
   process: seal
   mode: m0
   node:
@@ -67,8 +67,8 @@ activities:
     plate: plateloc.stage
   status: completed
 - kind: transport
-  start: 33
-  end: 40
+  start: 95
+  end: 132
   from_spot: plateloc.stage
   to_spot: thermal_cycler.block
   transporter: arm
@@ -83,8 +83,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 40
-  end: 56
+  start: 132
+  end: 149
   process: thermal_cycle
   mode: m0
   node:
@@ -97,8 +97,8 @@ activities:
     plate: thermal_cycler.block
   status: completed
 - kind: transport
-  start: 56
-  end: 72
+  start: 149
+  end: 195
   from_spot: thermal_cycler.block
   to_spot: centrifuge.deck
   transporter: arm
@@ -113,8 +113,8 @@ activities:
       port: plate
   status: completed
 - kind: processing
-  start: 72
-  end: 99
+  start: 195
+  end: 221
   process: rotate
   mode: m0
   node:
@@ -127,8 +127,8 @@ activities:
     plate: centrifuge.deck
   status: completed
 - kind: transport
-  start: 99
-  end: 110
+  start: 221
+  end: 261
   from_spot: centrifuge.deck
   to_spot: station.slot1
   transporter: arm
@@ -143,4 +143,4 @@ activities:
   status: completed
 objective:
   kind: makespan
-  value: 110
+  value: 261
