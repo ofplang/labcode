@@ -10,7 +10,12 @@ conformance check, and the rejection of any *extra* (undeclared) output name all
 
 A transport script is side-effect only (its return is ignored). Protocol (JSON on stdin,
 outcome to ``result_path``) is identical to the upstream child; only the process branch
-differs (raw, unverified, vs verified-exactly)."""
+differs (raw, unverified, vs verified-exactly).
+
+If the parent is recording the run, this process joins that record (`labcode.record`) and
+what the script does to an instrument is measured where it happens. The record is finished
+**after the outcome has been written**: finishing it can wait on something outside this
+process, and an operation's outcome must not be the thing that waiting costs."""
 
 from __future__ import annotations
 
@@ -19,6 +24,8 @@ import sys
 import traceback
 
 from ofplang.run.simulator import DeviceComputationError, run_python_script
+
+from labcode.record import child_recording
 
 
 def main() -> int:
@@ -30,6 +37,12 @@ def main() -> int:
         traceback.print_exc()
         return 1
 
+    # Reading the job has nothing to record; everything the operation does is in here.
+    with child_recording():
+        return _execute(job, result_path)
+
+
+def _execute(job: dict, result_path: str) -> int:
     try:
         raw = run_python_script(job.get("code") or "", job.get("inputs") or {})
         if job.get("kind") == "transport":

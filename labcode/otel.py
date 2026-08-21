@@ -153,11 +153,13 @@ class JsonLinesExporter(SpanExporter):
 
 
 def _as_json(span: ReadableSpan) -> dict[str, Any]:
+    # A span always has a context by the time it is exported; the type says otherwise, and a
+    # record with a hole in it is worth more than an exporter that raises.
     span_context = span.get_span_context()
     return {
         "name": span.name,
-        "trace_id": f"{span_context.trace_id:032x}",
-        "span_id": f"{span_context.span_id:016x}",
+        "trace_id": f"{span_context.trace_id:032x}" if span_context else None,
+        "span_id": f"{span_context.span_id:016x}" if span_context else None,
         "parent_span_id": (f"{span.parent.span_id:016x}" if span.parent is not None else None),
         "kind": span.kind.name,
         "service": (span.resource.attributes or {}).get("service.name"),
@@ -263,7 +265,8 @@ class ChildSession:
 
     provider: TracerProvider
     owned: bool
-    token: object
+    #: What `context.attach` handed back, to be given to `context.detach` unexamined.
+    token: Any
 
     def finish(self) -> None:
         uninstrument_sila2()
