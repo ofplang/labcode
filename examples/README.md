@@ -417,14 +417,85 @@ scripts issue real commands. The committed copies were produced on the realistic
 times vary between runs — by tens of seconds, now that five 30 s transfers dominate — while the
 sequence, the identities and the produced values do not.
 
+## `sila2_plate_cycle_no_atc` — the same circuit, on a bench with no thermal cycler
+
+The full circuit above needs an automated thermal cycler. When there is not one to use, the
+workflow that goes to the bench is this one — `sila2_plate_cycle` with that step removed and the
+rest in the order a bench with an **unsealed** plate can run them:
+
+```
+   (in) plate ──▶ seal ──▶ rotate ──▶ peel ──▶ (out) plate
+                    │                    │
+          (out) cycle_count        (out) tape_left
+```
+
+Seal, spin, peel — so the plate ends the circuit in the state it began it, and the run repeats
+without anyone reconditioning a plate in between. That is the same property the round trip has
+for the plate's *location*, applied to its condition; peeling first would need a sealed plate to
+start from and hand back a sealed one.
+
+- [`sila2_plate_cycle_no_atc.workflow.yaml`](sila2_plate_cycle_no_atc.workflow.yaml) is the
+  circuit minus one node, with the remaining three in the new order: the plate is sealed, spun
+  down and unsealed, and the *same* plate comes back to `station.slot1`.
+- [`sila2_plate_cycle_no_atc.wrapped.env.yaml`](sila2_plate_cycle_no_atc.wrapped.env.yaml)
+  drops the `thermal_cycler` device, its routes and the `thermal_cycle` mode, and joins four
+  different pairs of places: to the sealer, to the centrifuge, to the peeler, home. Only the
+  centrifuge has a door, so only the two routes at its ends open anything. Every instrument
+  script and every duration is the full circuit's, unchanged.
+- [`sila2_plate_cycle_no_atc.boundary.yaml`](sila2_plate_cycle_no_atc.boundary.yaml) is the
+  full circuit's boundary without `elapsed_time` — that reading was the cycler's.
+
+Nothing connects to the cycler, so the run does not care whether that server is up: the check
+asserts it was never scheduled, which is what makes a pass here evidence for the bench it was
+written for rather than for the full lab.
+
+```sh
+python examples/run_sila2_plate_cycle_no_atc.py
+```
+
+Same prerequisites and conventions as `sila2_plate_cycle` (the lab up, `sila2` importable, one
+plate on `station.slot1`, exit code 0 means every check passed, `--artifacts DIR` keeps the
+documents). It checks the same things minus the cycler's reading: every activity completed,
+four transports and three instrument steps, both readings real, the plate home at
+`station.slot1`, and all three instruments handling the plate with the same `_id`.
+
+Verified against the reference lab on both timing profiles at `--seconds-per-tick 1.0`. On
+`command_durations.realistic.yaml` the circuit is a makespan of about 190–220 (two ops fewer
+than the full one's 260–290); on the default profile every op finishes early and the run still
+completes. Running it twice in a row is the more interesting pass: the second run starts with
+the centrifuge closed by the first, so it only gets anywhere if the transport really can open
+the door.
+
+`--trace` records the run (`labcode.record`) and prints its trace id, so the SiLA2 commands, the
+client builds and the poll waits *inside* each operation are separable — which is what to look
+at when a duration turns out to be wrong. The exporter is configured by OpenTelemetry's own
+environment variables:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+  python examples/run_sila2_plate_cycle_no_atc.py --trace --artifacts run1
+```
+
+One thing to get right first: **point the exporter at `127.0.0.1`, not `localhost`.** Where the
+collector binds IPv4 only, `localhost` can resolve to `::1` first, and the exporter's retry
+backoff then stalls whichever operation was exporting. Measured on the reference lab at
+`--seconds-per-tick 1.0`: makespan 216 untraced, **219** traced via `127.0.0.1` (so recording
+itself costs next to nothing), **279** traced via `localhost` — one 39 s move became 95 s, and
+the run reported a 54 s poll cycle. Both traced runs recorded the same 114 spans, so the trace
+was not the poorer for it; only the schedule was.
+
+Even so, take a duration from an *untraced* run and use the trace to explain it. Recording puts
+an exporter in every operation's child process, and an operation's measured time is exactly what
+these numbers are for.
+
 ### Run every SiLA2 example
 
 ```sh
 python examples/run_all_sila2_examples.py
 ```
 
-Runs each environment above in turn — both `sila2_seal` environments and `sila2_plate_cycle`
-(they are round trips that put the plate back where it started, and each opens whatever it
-needs open, so they follow one another without intervention) — prints a pass/fail summary, and
-exits non-zero if any failed. Only the examples
+Runs each environment above in turn — both `sila2_seal` environments, `sila2_plate_cycle` and
+`sila2_plate_cycle_no_atc` (they are round trips that put the plate back where it started, and
+each opens whatever it needs open, so they follow one another without intervention) — prints a
+pass/fail summary, and exits non-zero if any failed. Only the examples
 that need the lab are included; `render_plate_line.py` needs nothing but Python.

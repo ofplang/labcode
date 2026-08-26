@@ -1,0 +1,115 @@
+# `sila2_plate_cycle` with the thermal cycler taken out: one Plate makes a circuit through
+# three instruments and comes back to where it started. Every step's *how* -- the three
+# instrument operations and the four moves -- is supplied by the environment as an
+# `x-labcode.script` (see sila2_plate_cycle_no_atc.wrapped.env.yaml); this file is portable
+# ofplang v0 and says only *what*.
+#
+#   (in) plate ──▶ seal ──▶ rotate ──▶ peel ──▶ (out) plate
+#                    │                    │
+#          (out) cycle_count        (out) tape_left
+#
+# WHY THIS EXISTS ALONGSIDE sila2_plate_cycle. That example is the full circuit, and it is
+# what the reference lab is checked against. This one is the shape a *real* bench can run
+# today: the automated thermal cycler is not available, so the workflow that is taken to
+# hardware is the circuit without it. Nothing else changes: the same three instruments, the
+# same arm, the same round trip, the same identity checks. Removing a step from a workflow is
+# a matter of removing a node and the arc through it, so the two files stay easy to compare.
+#
+# WHY THE ORDER IS SEAL, SPIN, PEEL -- and not the full circuit's peel-first. It is the
+# bench's plate that decides: it is sitting there **unsealed**, so the first thing that can
+# happen to it is being sealed, and the last thing that has to happen is having that seal
+# taken off. Then the plate ends the circuit in the state it began it -- unsealed -- and the
+# run is repeatable without anyone reconditioning a plate between runs, which is the same
+# property the round trip has for its *location*. Peeling first would need a sealed plate to
+# start from and would hand back a sealed one.
+#
+# The processes themselves do not care: an atomic process is a step, and the order lives in
+# the arcs below.
+#
+# The Plate is not created here: it enters and leaves at the run boundary (see
+# sila2_plate_cycle_no_atc.boundary.yaml), which is what makes the run a round trip and
+# therefore repeatable.
+#
+# Each instrument reports something real rather than a placeholder: the sealer says how many
+# cycles it has performed, the seal remover how much tape it has left. The centrifuge has no
+# counter to read, so `rotate` produces no data at all -- it is the example of a step that
+# only carries its Object through. (The `elapsed_time` reading of the full circuit was the
+# thermal cycler's, so it leaves with it.)
+spec_version: "0.0"
+
+types:
+  # A microplate. Declared with no view fields, like sila2_seal's Plate: it arrives from the
+  # run boundary as a bare Object at a spot, and there is nothing about it these processes
+  # read. labcode still injects the reserved `_id`, which is what makes the circuit
+  # checkable -- the same Plate must come back.
+  Plate:
+    domain: object
+
+processes:
+
+  # Seal it -- the first step here, on a plate that arrives unsealed. The sealer's cycle
+  # counter is the reading -- it goes up because this run performed a cycle.
+  seal:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:       { type: Plate, phase: data }
+      cycle_count: { type: Int,   phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # Spin it down. The only step with no data output: the centrifuge exposes no counter or
+  # measurement, so this process carries its Plate through and reports nothing.
+  rotate:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate: { type: Plate, phase: data }
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  # Remove the seal -- the last step here, so the plate goes home unsealed. Object-bearing:
+  # the Plate goes in and the *same* Plate comes out (objects.map), and the instrument's
+  # remaining supply-spool tape is reported as Pure Data.
+  peel:
+    kind: atomic
+    inputs:
+      plate: { type: Plate, phase: data }
+    outputs:
+      plate:     { type: Plate, phase: data }   # same name as the input: the same plate
+      tape_left: { type: Int,   phase: data }   # a spool reading, so an integer
+    objects:
+      map:
+        outputs.plate: inputs.plate
+
+  main:
+    kind: composite
+    inputs:
+      plate: { type: Plate, phase: data }         # the Plate comes in at the run boundary
+    outputs:
+      plate:       { type: Plate, phase: data }   # ...and the same Plate goes back out
+      tape_left:   { type: Int,   phase: data }
+      cycle_count: { type: Int,   phase: data }
+    body:
+      nodes:
+        - id: Seal
+          process: seal
+          state:
+            plate: { from: inputs.plate }         # Object arc: a move is scheduled for it
+        - id: Rotate
+          process: rotate
+          state:
+            plate: { from: Seal.plate }           # sealed, so it can be spun down
+        - id: Peel
+          process: peel
+          state:
+            plate: { from: Rotate.plate }         # and unsealed again before it goes home
+      returns:
+        plate:       { from: Peel.plate }
+        cycle_count: { from: Seal.cycle_count }
+        tape_left:   { from: Peel.tape_left }
+entry: main

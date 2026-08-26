@@ -1,9 +1,11 @@
 """Run every SiLA2 integration example against a running reference lab, and report.
 
-Three checks are meant to keep working: the `sila2_seal` workflow through each of its two
-environments (the `flavor: sila2` one and the `raw` one), and the `sila2_plate_cycle` circuit
-through four instruments. This runs each in turn and exits non-zero if any of them failed, so
-one command answers "does labcode still drive a real lab".
+Four checks are meant to keep working: the `sila2_seal` workflow through each of its two
+environments (the `flavor: sila2` one and the `raw` one), the `sila2_plate_cycle` circuit
+through four instruments, and the same circuit without the thermal cycler
+(`sila2_plate_cycle_no_atc`) -- the shape a bench without that machine can run. This runs each
+in turn and exits non-zero if any of them failed, so one command answers "does labcode still
+drive a real lab".
 
 Only the examples that need the lab are here. `render_plate_line.py` needs nothing but Python
 and is not part of this check, so that a missing prerequisite cannot be confused with a
@@ -32,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import run_sila2_plate_cycle
+import run_sila2_plate_cycle_no_atc
 import run_sila2_seal
 
 HERE = Path(__file__).parent
@@ -46,6 +49,7 @@ EXAMPLES: tuple[tuple[str, Any, list[str]], ...] = (
     ),
     ("sila2_seal (raw)", run_sila2_seal, ["--env", str(HERE / "sila2_seal.env.yaml")]),
     ("sila2_plate_cycle", run_sila2_plate_cycle, []),
+    ("sila2_plate_cycle_no_atc", run_sila2_plate_cycle_no_atc, []),
 )
 
 #: Every example takes the same tick length, and they agree on what it should be.
