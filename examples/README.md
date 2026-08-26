@@ -499,3 +499,40 @@ Runs each environment above in turn — both `sila2_seal` environments, `sila2_p
 each opens whatever it needs open, so they follow one another without intervention) — prints a
 pass/fail summary, and exits non-zero if any failed. Only the examples
 that need the lab are included; `render_plate_line.py` needs nothing but Python.
+
+## Taking one of these to a bench
+
+The examples above point at the reference lab because it is what CI and a laptop can run. An
+environment that speaks plain SiLA2 goes to real instruments by **changing hosts and ports and
+nothing else** — so a bench environment is best written as a copy of the mock one with the
+addresses replaced, and nothing else touched. Then `diff` says what is bench-specific.
+
+`*.remote.env.yaml` is **git-ignored**: this repository is public, and a bench's host/port
+inventory is not something to publish by accident. Keep the copy local, or commit it
+deliberately.
+
+### Check the bench before commanding anything
+
+[`preflight_sila2_env.py`](preflight_sila2_env.py) takes any labcode environment and checks it
+against the machines it names, **issuing no SiLA2 command**:
+
+```sh
+python examples/preflight_sila2_env.py --env examples/<your>.remote.env.yaml
+```
+
+Everything it does is a read — building labcode's own client (which fetches every Feature
+definition, and is where TLS, a wrong port and a half-open server show up), the `SiLAService`
+properties every server serves, and the transporter's non-observable
+`CarriageService.StationNames`. Nothing moves, nothing opens, nothing starts. It reports
+
+- each machine's identity and the Features it serves;
+- whether every Feature the environment's **scripts** name is actually served — a script
+  reaching for a Feature the server does not implement otherwise fails mid-run, with a plate
+  somewhere;
+- whether every station name the transport scripts use is one the transporter **knows** — an
+  unknown one fails with `InvalidStation`.
+
+What it cannot check is the one thing the hardware will not catch either: whether a station
+name the machine *does* know is the place the workflow means. `Base4` that is the sealer on one
+bench and the cycler on another does not fail — it puts a plate somewhere else. That mapping
+has to be confirmed against the bench, and it is the thing to confirm before a first run.

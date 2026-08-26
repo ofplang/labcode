@@ -12,3 +12,6 @@ venv/
 # Local working notes, not part of the published project (until explicitly committed).
 CLAUDE.md
 dev-notes/
+
+# The bench-specific environments name real hosts and ports; this repository is public.
+*.remote.env.yaml
