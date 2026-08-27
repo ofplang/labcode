@@ -95,7 +95,7 @@ described below.
 lc run <workflow> --env <env>
     [--boundary DOC] [-o OUT] [--boundary-out FILE] [--observation-out FILE]
     [--seconds-per-tick S] [--op-timeout S | --no-op-timeout] [--no-probe]
-    [--trace] [--mission-id ID] [--object-ids seeded|real]
+    [--ignore-resources] [--trace] [--mission-id ID] [--object-ids seeded|real]
 ```
 
 - `<workflow>` — the portable v0 workflow: *what* happens.
@@ -105,7 +105,12 @@ lc run <workflow> --env <env>
   `{spot, view}` descriptor per entry input / final output port. `spot` says where a
   boundary Object sits; `view` supplies an input's value. A workflow with Object-bearing
   entry inputs needs one, since each must be placed on a spot and only the operator knows
-  where the labware is.
+  where the labware is. Where a device declares a consumable and some mode draws on it,
+  an `inventories: {levels: ...}` section says what each stock holds **at the start of
+  the run** — the level later on is never stated, it is worked out from that and what the
+  run has done since. It is not echoed into `--boundary-out`, because that document is
+  written to be fed back and the next run would take this run's opening stock for its
+  own.
 - `-o OUT` — write the final execution status (spec §6/§7) here; the default is stdout.
 - `--boundary-out FILE` — write the result boundary: the same schema as `--boundary`, with
   each produced output's `view` filled in, including the `_id` its Object was minted with
@@ -123,6 +128,12 @@ lc run <workflow> --env <env>
   else 7200 real seconds. The two forms exclude each other.
 - `--no-probe` — ignore the environment's `x-labcode.probe` policies and treat every
   machine as reachable (§1.5). The documents are still validated.
+- `--ignore-resources` — switch the consumable model off. The environment's resource
+  declarations are still checked for shape but none is applied, so a bench whose devices
+  declare stocks nobody is tracking runs without the boundary saying what they held. This
+  is also the way to run an environment that declares **replenishments**: the scheduler
+  would answer it with refills, and carrying one out is not something labcode can do yet,
+  so such an environment is otherwise refused before the run starts.
 - `--trace` — record what the run did (see below). Off by default.
 - `--mission-id ID` — the campaign this run belongs to. Recorded with the run and given no
   meaning by labcode: several runs may share one, and nothing here reads it back.
