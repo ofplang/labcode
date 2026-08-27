@@ -54,19 +54,23 @@ repository, and what labcode adds to it in [`SPECIFICATIONS.md`](SPECIFICATIONS.
 
 What `lc run` brings of its own, beyond dispatching:
 
-- **the labcode backend** — each device operation's `x-labcode.script` runs
-  out-of-process on a wall clock (§1.2, §1.3), so a real operation that takes minutes
-  does not block the replan loop, and an operation that never returns is stopped by
-  **`op_timeout`** (§1.8; `--op-timeout` / `--no-op-timeout`).
+- **the labcode backend** — each operation's `x-labcode.script` runs out-of-process on a
+  wall clock (§1.2–§1.4), so a real operation that takes minutes does not block the
+  replan loop, and an operation that never returns is stopped by **`op_timeout`**
+  (§1.9; `--op-timeout` / `--no-op-timeout`).
+- **refilling a stock** — where the environment says a replenisher can reach a device, a
+  stock that would run out is topped up rather than ending the run: the refill's own
+  script runs like any other, holding both machines while it works (§1.4). See
+  *Refilling a stock* below.
 - **the dialect front door** — the environment's `x-labcode` extension is validated
   before anything runs, on top of the portable-v0 check `lc validate` performs (§1, §2).
 - **availability probing** — each machine is checked as often as its `probe` policy says,
   and one that cannot be reached is taken out of the environment the scheduler plans
-  against, so the run routes around it (§1.5; `--no-probe`).
+  against, so the run routes around it (§1.6; `--no-probe`).
 - **object identity** — the reserved `_id` view key is declared on Object types and minted
   per object, so a physical thing can be followed through a run (§4).
 - **`flavor: sila2`** — a script that speaks SiLA2 gets its clients opened around it
-  (§1.6). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
+  (§1.7). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
   installed into whichever interpreter runs the scripts.
 - **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
   traces: one trace per run, a span per operation, and — measured inside the process that
@@ -124,10 +128,10 @@ lc run <workflow> --env <env>
   completed reads as discrete, observable steps; a demo against a fast mock wants a small
   value.
 - `--op-timeout S` / `--no-op-timeout` — how long one operation may run before it is
-  stopped and failed (§1.8). The default is the environment root's `x-labcode.op_timeout`,
+  stopped and failed (§1.9). The default is the environment root's `x-labcode.op_timeout`,
   else 7200 real seconds. The two forms exclude each other.
 - `--no-probe` — ignore the environment's `x-labcode.probe` policies and treat every
-  machine as reachable (§1.5). The documents are still validated.
+  machine as reachable (§1.6). The documents are still validated.
 - `--ignore-resources` — switch the consumable model off. The environment's resource
   declarations are still checked for shape but none is applied, so a bench whose devices
   declare stocks nobody is tracking runs without the boundary saying what they held.

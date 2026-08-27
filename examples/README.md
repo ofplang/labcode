@@ -136,7 +136,7 @@ x-labcode:
 
 What the flavor supplies is connections, nothing more. Waiting for an *observable* command to
 finish stays in the script — but the loop itself does not have to be rewritten each time:
-labcode ships `settle` in **`labcode.sila2_commands`** (§1.6.1), reached by the ordinary import
+labcode ships `settle` in **`labcode.sila2_commands`** (§1.7.1), reached by the ordinary import
 above. Nothing is injected, so a script that does not import it does not have it, and a `raw`
 script has exactly the same access as this one. A live connection is worth a name that appears
 out of nowhere; an import is not.
@@ -149,14 +149,14 @@ instrument carries on, leaving the lab for the operator to restore.
 The names a script hands a machine still have to be the ones that machine knows — for the arm
 those are its **station** names (`Base1`, `Base4`, …), not labcode's `device.spot`, and one it
 does not know fails with `InvalidStation` at the moment of use. See
-[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.4 and §1.6, and the plate-cycle section below
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.5 and §1.7, and the plate-cycle section below
 for why the two vocabularies do not meet anywhere but in a transport script.
 
 ### If a machine stops answering
 
 Neither environment here asks for it, but labcode can **check that a machine is reachable**
 and schedule around the ones that are not — see
-[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.5. Adding this to a device (or a
+[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.6. Adding this to a device (or a
 transporter) that declares a `connection`:
 
 ```yaml
@@ -175,7 +175,7 @@ run without editing the environment.
 
 Probing catches a machine that is not there; it does not catch one that accepted a command
 and never came back. That is what the **operation timeout** is for
-([`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.8): every operation has a real-seconds
+([`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.9): every operation has a real-seconds
 deadline (7200 s by default, declared lab-wide at the environment root as
 `x-labcode.op_timeout`), and one that passes it is stopped and failed with the reason
 `op_timeout` — a run that ends with a status document and a reason instead of one that
@@ -324,7 +324,7 @@ dependency runs one way, and the lab's world model is not labcode's to edit.
 **Lids and doors.** In the lab's world model a closed lid or door makes that spot inaccessible,
 and an item cannot be moved into or out of an inaccessible spot. So the transport that delivers
 the plate is what opens the instrument: three of the five routes declare `endpoints: true` and
-are handed clients for the devices at either end as well as for the arm (§1.6). That is sound
+are handed clients for the devices at either end as well as for the arm (§1.7). That is sound
 because the scheduler has already given the move both instruments for its whole duration —
 nothing else can be using them meanwhile.
 

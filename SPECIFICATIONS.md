@@ -12,10 +12,12 @@ conformance validator, run at the `lc run` front door.
 
 ## 1. `x-labcode` in an environment (P5)
 
-The extension appears in four places, each answering a different question: on a **process
-mode** and on a **transport route** it says *what to run* (a `script`, §1.1–§1.3); on a
-**device** and on a **transporter** it says *how to reach the machine* (a `connection`,
-§1.4), which is what lets a script be the commands alone (§1.6). Nowhere else — see §1.7.
+The extension answers two different questions, in two kinds of place. On a **process
+mode**, a **transport route** and a **replenishment route** it says *what to run* (a
+`script`, §1.1–§1.4); on a **device**, a **transporter** and a **replenisher** it says
+*how to reach the machine* (a `connection`, §1.5), which is what lets a script be the
+commands alone (§1.7). The division is the same each time: the machine has an address,
+and the thing it does to something else has a procedure. Nowhere else — see §1.8.
 
 An environment process mode (§5) may carry an `x-labcode` mapping holding a `script`: the
 Python that carries out that `(process, mode)`.
@@ -39,19 +41,20 @@ still validates and schedules as plain v0. Only labcode interprets it.
 
 ### 1.1 Shape
 
-- `x-labcode` MUST be a mapping. On a process mode or a transport route its only key is
-  `script`.
+- `x-labcode` MUST be a mapping. On a process mode, a transport route or a replenishment
+  route its only key is `script`.
 - `x-labcode.script`, if present, MUST be a mapping with:
   - `language`: MUST be `python`.
   - `code`: MUST be a string (an implementation-provided Python function body).
   - `flavor` (optional, default `raw`): MUST be `raw` or `sila2` — how `code` is meant to
-    be run (§1.6). `sila2` is the **recommended** way to drive a SiLA2 lab: the code is the
+    be run (§1.7). `sila2` is the **recommended** way to drive a SiLA2 lab: the code is the
     commands alone and labcode supplies the clients. `raw` is the whole function body,
     written by its author — the general escape hatch, and what a script that connects for
-    itself (or speaks something other than SiLA2) uses.
+    itself (or speaks something other than SiLA2) uses. On a **replenishment route**
+    `sila2` is an error in this version (§1.4).
   - `endpoints` (**transport routes only**, optional, default `false`): MUST be a boolean —
     whether this move is also given clients for the devices at either **end** of its route,
-    not only its `transporter` (§1.6). A process mode may not declare it: a mode's machines
+    not only its `transporter` (§1.7). A process mode may not declare it: a mode's machines
     are the ones it lists.
 
 **Unknown keys are an error** — in `x-labcode` at every position, and in the mappings it
@@ -121,12 +124,58 @@ output is verified. Success is "it ran without raising"; an exception is a grace
 A route with no `x-labcode.script` runs as a plain timed move — the runner's material
 bookkeeping only, with no device command (a warned no-op for a real move, from != to).
 
-### 1.4 `x-labcode` on a device or a transporter
+### 1.4 `x-labcode` on a replenishment route
 
-An environment `devices[]` or `transporters[]` entry may carry an `x-labcode` with two
-keys: `connection` — **where that machine is**, written once per physical machine rather
-than repeated in every script that drives it — and `probe` (§1.5) — whether to check that
-it still answers.
+An environment `replenishments[]` route may carry an `x-labcode` with a `script`: the
+Python that physically refills that device from that replenisher (e.g. commanding a
+dispenser). Same shape as §1.1 (`language: python`, string `code`).
+
+The procedure lives on the **route**, not on the machine — the same division transports
+and transporters have. A dispenser's address is a property of the dispenser (§1.5); how it
+fills *this* device is a property of the pair.
+
+```yaml
+replenishments:
+  - replenisher: dispenser
+    device: reader
+    duration: 4                    # ticks: the scheduler's estimate of the visit
+    x-labcode:
+      script:
+        language: python
+        code: |
+          import time
+          time.sleep(80)           # real seconds: what the visit actually takes
+```
+
+**Calling convention (replenishment).** The script runs as a function body with these
+locals: `replenisher`, `device` (the two machines the visit holds) and `amounts` — the
+`{resource: amount}` the scheduler derived, which a planned refill fills to the device's
+capacity. It is **not** given the duration: a real refill takes as long as it takes, and
+the ticks the plan reserved are the scheduler's estimate rather than an instruction, so a
+stand-in states its own time (which is why the two numbers above are written separately).
+
+A replenishment script is **side-effect only**, as a transport's is: its return value is
+ignored and no output is verified. An exception is a graceful failure — the refill ends
+`failed` and the run stops, like any activity failure.
+
+`flavor: sila2` is **an error** on a replenishment route in this version. A `sila2` script
+is handed clients (§1.7), and which machine's clients a refill should receive — the
+replenisher's, or both ends' as a transport route may ask for — is not settled. Refusing
+says so; running the script without the clients it asked for would not. Use `raw` (the
+default), which may of course connect for itself.
+
+A route with no `x-labcode.script` runs as a plain timed visit: both machines are held for
+the declared duration and nothing is commanded. That is a legitimate environment to write
+— an operator tops the stock up while the schedule waits for them — and an easy one to
+write by accident, so it is **warned** about, as a scriptless real move is.
+
+### 1.5 `x-labcode` on a device, a transporter or a replenisher
+
+An environment `devices[]`, `transporters[]` or `replenishers[]` entry may carry an
+`x-labcode` with two keys: `connection` — **where that machine is**, written once per
+physical machine rather than repeated in every script that drives it — and `probe` (§1.6)
+— whether to check that it still answers. The three kinds are treated alike because they
+are alike: each is a machine with an address that a run may find unreachable.
 
 ```yaml
 devices:
@@ -165,7 +214,7 @@ a script uses it.
   one.
 
 A transport that declares `endpoints: true` is also handed the clients of the devices at
-either **end** of its route (§1.6), but those are *not* required to declare a `connection`:
+either **end** of its route (§1.7), but those are *not* required to declare a `connection`:
 a route through a plain holding location is ordinary, and the end without an address is
 simply not connected to (a **warning** when *neither* end has one, since then the request
 does nothing). The transporter is the one that must be reachable, because it is the machine
@@ -176,7 +225,7 @@ honoured.
 Declaring a `connection` on a device no script connects to is allowed — it is how an
 environment is prepared before the scripts that use it are written.
 
-### 1.5 Availability — `probe`
+### 1.6 Availability — `probe`
 
 A machine that stops answering should not keep receiving work. A `probe` policy asks labcode
 to check the machines it knows how to reach, and to tell the scheduler about the ones it
@@ -263,7 +312,7 @@ belongs — as the operation that tried to command it failing.
   document is still validated, so an environment that is wrong about probing stays wrong).
   Each machine whose reachability changes is reported on stderr.
 
-### 1.6 Calling convention (`flavor: sila2`)
+### 1.7 Calling convention (`flavor: sila2`)
 
 A `sila2` script is the **commands alone**: labcode opens a client to each of the
 operation's machines, runs the code with them in scope, and closes them afterwards. On top
@@ -371,7 +420,7 @@ equally available to a `raw` script, and stays visible in the code that depends 
   is to turn a hang into a diagnosable failure.
 - **It is the inner of two limits.** This one is per command, chosen by the script that
   knows what it is waiting for, and its failure can name the command that hung. The outer
-  one (§1.8) is per operation and lab-wide, and catches the hangs no script is watching
+  one (§1.9) is per operation and lab-wide, and catches the hangs no script is watching
   for. The outer default is looser than this one, so where both apply this is what fires.
 - **Its timeout is in real seconds**, and is unrelated to the mode's `duration` — which is
   an *estimate*, in environment time, for scheduling. A schedule's estimate is not a
@@ -381,11 +430,11 @@ equally available to a `raw` script, and stays visible in the code that depends 
 - A `sila2` script is only interpreted where the dialect is — in an environment
   `x-labcode`. A workflow's own `script` (v0 §22) has no `flavor`.
 
-### 1.7 Where an `x-labcode` may appear
+### 1.8 Where an `x-labcode` may appear
 
 The positions of §1 are the only ones: the environment **root** (`probe` defaults and
-`op_timeout`), `processes.<p>.modes[]`, `transports[]`, `devices[]` and
-`transporters[]`. An `x-labcode`
+`op_timeout`), `processes.<p>.modes[]`, `transports[]`, `replenishments[]`, `devices[]`,
+`transporters[]` and `replenishers[]`. An `x-labcode`
 anywhere else in the environment — on a process, beside `time` — is an **error**, as is a
 key at a position that does not define it (a `connection` at the root, a `probe` on a mode).
 Nothing would read it, and `ofplang-schedule` tolerates an `x-` key at *every* position
@@ -395,7 +444,7 @@ This rule covers the environment only. An `x-labcode` in the **workflow** is not
 that document is portable v0, read by other implementations, and what extension keys it
 carries is not labcode's business.
 
-### 1.8 Operation timeout — `op_timeout`
+### 1.9 Operation timeout — `op_timeout`
 
 How long **one operation** may run before labcode stops waiting for it, in **real
 seconds**. It lives at the environment root and nowhere else:
@@ -410,7 +459,7 @@ x-labcode:
   way to say "no limit" and is an error; a machine may not declare one (a per-machine key
   is an unknown key, §1.1).
 - **One value for the whole lab.** The fine-grained waits belong to the scripts, which know
-  what they are waiting for (`settle`, §1.6.1); this value only has to clear the longest
+  what they are waiting for (`settle`, §1.7.1); this value only has to clear the longest
   operation the lab legitimately runs. Its default (7200 s) is twice the `settle` default,
   so where both apply the inner one — which can name the command — fires first.
 - **The clock is real seconds**, from the moment the operation starts, covering everything
@@ -422,13 +471,13 @@ x-labcode:
   failure — the run stops, the status document is written, the reason is reported, the exit
   code is 1 — which is the point: without a limit, an instrument that stops answering
   leaves a run polling with *no* status document and no reason at all.
-- **A timeout is not a cancel**, exactly as in §1.6.1: nothing here can stop a command the
+- **A timeout is not a cancel**, exactly as in §1.7.1: nothing here can stop a command the
   instrument has already accepted. It keeps running, and the state that leaves behind —
   including material a transport was part way through moving — is the operator's to
   restore. The run stops there, so labcode's own picture of the lab is not relied on
   afterwards.
 - The machine that hung is **not** treated as unavailable: `op_timeout` does not add it to
-  the down machines (§1.5), because "not answering" is not "not there", and re-routing work
+  the down machines (§1.6), because "not answering" is not "not there", and re-routing work
   onto other machines while this one is still physically running its command would make the
   lab less consistent, not more.
 - `lc run` overrides it for one run: `--op-timeout SECONDS`, or `--no-op-timeout` for no
@@ -450,6 +499,11 @@ For a dispatched `(process, mode)`, labcode resolves the code to run in this ord
 will run as a typed-default no-op. This is allowed — convenient while mocking a device —
 but `lc run` warns about it, so an unimplemented device is not silently a no-op.
 
+**Transport and replenishment routes have no such chain.** There is nothing for them to
+fall back to: a workflow describes neither a physical move nor a refill, so the route's
+own `x-labcode.script` is the only source. A route without one runs as a plain timed
+activity (§1.3, §1.4), warned about for the same reason as above.
+
 ## 3. Execution model
 
 Each dispatched operation runs in its own child process (real, wall-clock-paced); the
@@ -457,7 +511,7 @@ runner discovers completion by polling, so a multi-minute computation never bloc
 The advisory `duration` is the scheduler's estimate; the real duration is the script's.
 A script error (an exception, a wrong/ missing output name, a non-conformant value) is a
 graceful runtime failure (§22.2): the operation ends `failed` and the run stops. An
-operation that never finishes at all ends the same way once it passes `op_timeout` (§1.8) —
+operation that never finishes at all ends the same way once it passes `op_timeout` (§1.9) —
 polling for completion is not the same as waiting forever for it.
 
 Cadence: the nominal poll period is `poll_interval × seconds_per_tick`. labcode defaults
@@ -503,7 +557,7 @@ statement that the cycle was cheap.
 
 So: keep the budget comfortably larger than the cycle cost. What the cycle costs is not
 fixed — replanning grows with the workflow, and a dialect step such as availability probing
-(§1.5) can add seconds — so the margin wants to be generous rather than exact. A run whose
+(§1.6) can add seconds — so the margin wants to be generous rather than exact. A run whose
 recorded times matter (a checked-in example, a comparison against the plan's estimates)
 needs this to hold; a run that only has to *complete* does not.
 
@@ -562,9 +616,13 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 ## 5. Not yet in this version (roadmap)
 
+- **`flavor: sila2` on a replenishment route** — refused today (§1.4). What has to be
+  settled first is which machine's clients a refill script receives: the replenisher's
+  alone, or both ends' as a transport route may ask for with `endpoints`. Until then a
+  refill that must speak SiLA2 uses a `raw` script and connects for itself.
 - **A deeper probe** — asking a machine something (a SiLA2 property read) rather than only
   opening a connection to it, so "answering" can be checked and not just "listening"
-  (§1.5). It would be an opt-in depth, since it costs a real exchange per check.
+  (§1.6). It would be an opt-in depth, since it costs a real exchange per check.
 - **Probing in parallel** — checking machines concurrently, so a lab with many unreachable
-  machines does not pay for them one timeout at a time (§1.5).
-- **TLS** — the fields a secure connection needs, lifting the restriction in §1.4.
+  machines does not pay for them one timeout at a time (§1.6).
+- **TLS** — the fields a secure connection needs, lifting the restriction in §1.5.
