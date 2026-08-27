@@ -50,7 +50,6 @@ TRANSPORT_ENV = {
         }
     ],
     "processes": {},
-    "objective": {"kind": "makespan"},
 }
 
 

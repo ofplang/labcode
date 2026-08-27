@@ -77,7 +77,6 @@ def test_factory_builds_labcode_backend():
         "transporters": [{"id": "arm"}],
         "transports": [],
         "processes": {},
-        "objective": {"kind": "makespan"},
     }
     backend = labcode_backend_factory(seconds_per_tick=0.001)(env)
     assert isinstance(backend, LabcodeBackend)
@@ -95,7 +94,6 @@ def _timeout_env(**extension) -> dict:
         "transporters": [{"id": "arm"}],
         "transports": [],
         "processes": {},
-        "objective": {"kind": "makespan"},
     }
     if extension:
         env["x-labcode"] = extension
@@ -296,7 +294,6 @@ TRANSPORT_ENV = {
     "transports": [{"transporter": "t", "from": "s0.core", "to": "s1.core", "duration": 1,
                     "x-labcode": {"script": {"language": "python", "code": "MOVE"}}}],
     "processes": {},
-    "objective": {"kind": "makespan"},
 }
 
 
@@ -347,7 +344,6 @@ _MINIMAL_ENV = {
     "transporters": [{"id": "a"}],
     "transports": [],
     "processes": {},
-    "objective": {"kind": "makespan"},
 }
 # `read`: output `plate` (Plate, view {barcode, _id}) carried via objects.map + `od` (Float).
 # The `_id` field reflects labcode's Object-identity rewrite (every Object view declares it).

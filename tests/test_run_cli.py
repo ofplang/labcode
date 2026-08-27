@@ -27,7 +27,6 @@ processes:
   measure:
     modes:
       - {id: v0, duration: 3}
-objective: {kind: makespan}
 """
 
 
@@ -297,7 +296,6 @@ processes:
               import time
               time.sleep(600)
               return {"od": 0.42}
-objective: {kind: makespan}
 """
 
 
