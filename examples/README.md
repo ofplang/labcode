@@ -185,11 +185,11 @@ polls forever. A script that knows its own commands should still bound them itse
 
 ### Prerequisites
 
-**Verified against [ofplang-sila2-backend](https://github.com/kaizu/sila2-demo) branch `ardea`
-(commit `de3c4fd`)** — a virtual lab of mock SiLA2 instrument servers. That branch is where its
+**Verified against [ofplang-sila2-backend](https://github.com/ofplang/sila2-backend) at commit
+`de3c4fd`** — a virtual lab of mock SiLA2 instrument servers. That commit is where its
 transporter became a mock of **Ardea**, a machine that exists, serving the real one's nine
-Feature definitions unchanged; it is not merged, so a checkout of `main` will not run these
-examples. That lab is a *reference, not a
+Feature definitions unchanged; it reached `main` in the `ardea` merge, so a checkout of `main`
+runs these examples. That lab is a *reference, not a
 requirement*: the scripts speak plain SiLA2, so pointing them at real instruments is a matter
 of changing the host and port in the environment. The version is recorded so a run without
 hardware has something known to reproduce against; it is deliberately not asserted on, since
