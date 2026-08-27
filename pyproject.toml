@@ -37,16 +37,19 @@ classifiers = [
 # front door hands the expanded document on (>=0.1.3). `validate` and `schedule`
 # subcommands still forward unchanged.
 #
-# `ofplang-schedule>=0.2.0` says what this package is tested against rather than what its
+# `ofplang-run>=0.3.0` is required: `lc run` executes refills, which needs the runner's
+# `dispatch_replenishment` seam and the `kind: replenishment` the child harness has to
+# recognise as side-effect only.
+#
+# `ofplang-schedule>=0.2.3` says what this package is tested against rather than what its
 # own code calls -- nothing here calls a scheduler API newer than the in-memory workflow
 # acceptance of 0.1.3. CI resolves the siblings from PyPI, so every run of this suite and
-# every real-lab example already happens on 0.2.0, a release that renamed a diagnostic and
-# raised its own ortools floor. Keeping the floor at 0.1.3 would claim support for
-# schedulers nothing here has exercised since.
+# every real-lab example already happens on it, and run's own floor requires it anyway
+# (an older scheduler reports a running refill free before it is).
 dependencies = [
     "ofplang-validate>=0.1.3",
-    "ofplang-schedule>=0.2.0",
-    "ofplang-run>=0.2.0",
+    "ofplang-schedule>=0.2.3",
+    "ofplang-run>=0.3.0",
 ]
 
 [project.urls]
