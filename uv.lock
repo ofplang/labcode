@@ -468,7 +468,7 @@ test = [
 requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "ofplang-run", specifier = ">=0.1.13" },
-    { name = "ofplang-schedule", specifier = ">=0.1.3" },
+    { name = "ofplang-schedule", specifier = ">=0.2.0" },
     { name = "ofplang-validate", specifier = ">=0.1.3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.20" },
@@ -986,16 +986,16 @@ wheels = [
 
 [[package]]
 name = "ofplang-schedule"
-version = "0.1.6"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ofplang-validate" },
     { name = "ortools" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/a2/98756a02a7e7d9cb3a56ea27074d3cd62e3e8f2a00d63a27f54fa08eb496/ofplang_schedule-0.1.6.tar.gz", hash = "sha256:7c482fa6b8c631df2c84f0319110b046fba343b24c75a17315855cb278fb5be9", size = 179478, upload-time = "2026-08-19T08:05:42.688Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/db/50af00f8fb132f3e17dfb21ece6b6816efefd79f8760d59bf26fbc1d7ada/ofplang_schedule-0.2.0.tar.gz", hash = "sha256:2141e37d34878f9976309e7b1cd3d344e506930857a4f2f44cad763e91c034d3", size = 237888, upload-time = "2026-08-27T03:03:33.707Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/fe/1e5b36042019f26ef5d3885d65031d573108cfc9db82227d8bb41f75e66a/ofplang_schedule-0.1.6-py3-none-any.whl", hash = "sha256:34d73a7ab5df30d28d85390d791157f38cb4eef631fb3c2dcc3c9af6d3d828d7", size = 80211, upload-time = "2026-08-19T08:05:41.19Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/0b/452b218a35c02bbbcc5af75e08ab830ec97d1ba30ad96df24dff6060c34e/ofplang_schedule-0.2.0-py3-none-any.whl", hash = "sha256:d57ad18a0757cafbe106da711e7c3633a5592ef2db7ca3ce02717879efed0905", size = 104923, upload-time = "2026-08-27T03:03:32.334Z" },
 ]
 
 [[package]]
