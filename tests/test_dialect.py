@@ -607,3 +607,96 @@ def test_a_mode_without_an_id_is_located_by_its_position():
     result = validate_dialect({}, _env({"devices": ["reader"], "x-labcode": "oops"}))
     assert not result.ok
     assert any("mode #0" in e for e in result.errors)
+
+
+# -- replenishment routes ---------------------------------------------------
+#
+# A refill is described where the pair is: the (replenisher, device) route carries the
+# procedure, the machine carries only its address -- the same division transporters and
+# transports have.
+
+
+def _refill_env(script: dict | None = None, **entry_extra) -> dict:
+    entry = {"replenisher": "dispenser", "device": "reader", "duration": 4, **entry_extra}
+    if script is not None:
+        entry["x-labcode"] = {"script": script}
+    return {
+        "devices": [_device()],
+        "replenishers": [{"id": "dispenser"}],
+        "replenishments": [entry],
+        "processes": {},
+    }
+
+
+def test_a_refill_script_is_accepted_on_its_route():
+    result = validate_dialect({"processes": {}}, _refill_env(
+        {"language": "python", "code": "import time\ntime.sleep(1)"}
+    ))
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_a_route_with_no_script_is_warned_about():
+    """A legitimate thing to write -- an operator tops the stock up while the schedule
+    waits for them -- and an easy thing to write by accident, so it is said out loud,
+    exactly as a scriptless transport route is."""
+    result = validate_dialect({"processes": {}}, _refill_env())
+    assert result.ok, result.errors
+    assert any("command nothing" in w for w in result.warnings)
+
+
+def test_a_sila2_refill_script_is_refused_for_now():
+    """A sila2 script is handed clients, and which machine's clients a refill should
+    receive -- the replenisher's, or both ends' as a transport may ask for -- is not
+    settled. An error says so; running the script without clients would not."""
+    result = validate_dialect({"processes": {}}, _refill_env(
+        {"language": "python", "code": "return {}", "flavor": "sila2"}
+    ))
+    assert not result.ok
+    assert any("'sila2' is not supported for a refill" in e for e in result.errors)
+
+
+def test_a_refill_script_may_not_ask_for_endpoints():
+    """`endpoints` is a transport's request (which end's clients to open); a refill route
+    has no such key, so asking is a typo."""
+    result = validate_dialect({"processes": {}}, _refill_env(
+        {"language": "python", "code": "pass", "endpoints": True}
+    ))
+    assert not result.ok
+    assert any("endpoints" in e for e in result.errors)
+
+
+def test_an_unknown_key_on_a_refill_route_extension_is_rejected():
+    env = _refill_env({"language": "python", "code": "pass"})
+    env["replenishments"][0]["x-labcode"]["connection"] = CONNECTION
+    result = validate_dialect({"processes": {}}, env)
+    assert not result.ok
+    assert any("connection" in e for e in result.errors)
+
+
+def test_a_replenisher_may_declare_where_it_is_reached():
+    """The machine carries the address, the route carries the procedure."""
+    env = _refill_env({"language": "python", "code": "pass"})
+    env["replenishers"][0]["x-labcode"] = {"connection": CONNECTION}
+    result = validate_dialect({"processes": {}}, env)
+    assert result.ok, result.errors
+
+
+def test_a_replenisher_is_probed_when_it_declares_a_connection_and_a_policy():
+    from labcode.probe import probe_targets
+
+    env = _refill_env({"language": "python", "code": "pass"})
+    env["replenishers"][0]["x-labcode"] = {
+        "connection": CONNECTION,
+        "probe": {"enabled": True},
+    }
+    assert validate_dialect({"processes": {}}, env).ok
+    assert [t.identifier for t in probe_targets(env)] == ["dispenser"]
+
+
+def test_an_x_labcode_somewhere_nothing_reads_still_says_where_it_belongs():
+    env = _refill_env({"language": "python", "code": "pass"})
+    env["replenishments"][0]["nested"] = {"x-labcode": {}}
+    result = validate_dialect({"processes": {}}, env)
+    assert not result.ok
+    assert any("replenishments[]" in e for e in result.errors)

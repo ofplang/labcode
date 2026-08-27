@@ -339,6 +339,13 @@ def transporter_connections(environment: dict) -> dict[str, Connection]:
     return _connections(environment.get("transporters"))
 
 
+def replenisher_connections(environment: dict) -> dict[str, Connection]:
+    """``{replenisher id: Connection}``, as `device_connections`. Kept separate from the
+    other two for the same reason they are kept apart: machines of different kinds share
+    one id space and must not shadow each other."""
+    return _connections(environment.get("replenishers"))
+
+
 def _connections(entries: Any) -> dict[str, Connection]:
     found: dict[str, Connection] = {}
     if not isinstance(entries, list):
@@ -385,6 +392,11 @@ SUPPORTED_POSITIONS: tuple[Path, ...] = (
     ("transports", ANY),
     ("devices", ANY),
     ("transporters", ANY),
+    # A refill is described where the pair is: the (replenisher, device) route carries
+    # the script, exactly as a transport route does, while the machine itself carries
+    # only where it can be reached -- the same division as transporters and transports.
+    ("replenishments", ANY),
+    ("replenishers", ANY),
 )
 
 

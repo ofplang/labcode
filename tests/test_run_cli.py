@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from labcode import run_cli
 from labcode.backend import labcode_backend_factory
@@ -515,3 +516,42 @@ def test_cli_rejects_an_unknown_kind_of_object_id():
     with pytest.raises(SystemExit) as excinfo:
         run_cli.main([WF, "--env", ENV, "--object-ids", "clever"])
     assert excinfo.value.code == 2
+
+
+def test_e2e_a_refill_is_carried_out_by_a_child_process(tmp_path):
+    """The whole refill path, for real: the scheduler places a refill because the stock
+    starts empty, `lc run` dispatches it, the env's script runs out-of-process, and only
+    then does the operation that draws on the stock go ahead.
+
+    The refill script returns nothing -- it acts. That is why the child has to know a
+    refill is side-effect only; asked for a mapping of outputs, a `time.sleep` script
+    fails on the `None` it was never written to return.
+    """
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    boundary = tmp_path / "boundary.yaml"
+    boundary.write_text(
+        "boundary:\n  inventories:\n    levels:\n      rack:\n        reagent: 0\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "status.yaml"
+    code = run_cli.main([
+        str(FIX / "device_script.workflow.yaml"),
+        "--env", str(FIX / "replenishment.env.yaml"),
+        "--boundary", str(boundary),
+        # A real child takes real time to start, so the tick has to be long enough that
+        # the plan's estimate is not already wrong, and the margin gives an overrun room.
+        "--seconds-per-tick", "0.5",
+        "--margin", "1",
+        "-o", str(out),
+    ])
+    assert code == 0
+    status = yaml.safe_load(out.read_text(encoding="utf-8"))
+    refills = [a for a in status["activities"] if a.get("kind") == "replenishment"]
+    assert len(refills) == 1
+    assert refills[0]["status"] == "completed"
+    assert refills[0]["device"] == "rack" and refills[0]["replenisher"] == "dispenser"
+    assert refills[0]["amounts"] == {"reagent": 1}
+    # The draw happens after the refill landed, never over it: the refill holds the rack.
+    drawing = [a for a in status["activities"] if a.get("consumption")]
+    assert drawing and all(a["start"] >= refills[0]["end"] for a in drawing)
+    assert all(a["status"] == "completed" for a in status["activities"])

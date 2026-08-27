@@ -42,6 +42,7 @@ SPAN_RUN = "run"
 #: everything that varies per operation (the node, the Object id) is an attribute.
 SPAN_PROCESS_PREFIX = "process "
 SPAN_TRANSPORT = "transport"
+SPAN_REPLENISHMENT = "replenishment"
 
 #: The campaign this run belongs to. labcode gives it no meaning -- it is recorded and nothing
 #: else -- and it is left out entirely when nobody supplied one.
@@ -55,6 +56,10 @@ ATTR_MODE = "ofp.mode"
 ATTR_SPOT_FROM = "ofp.spot.from"
 ATTR_SPOT_TO = "ofp.spot.to"
 ATTR_TRANSPORTER = "ofp.transporter"
+#: A refill: the machine filled and the machine filling it. Two pointers, because a refill
+#: holds both -- which is the one thing about it that constrains a schedule.
+ATTR_DEVICE = "ofp.device"
+ATTR_REPLENISHER = "ofp.replenisher"
 #: Which physical Objects this operation handled (labcode's implicit ``_id``) -- the attribute
 #: that answers "what happened to this plate". **Always a list**, because one operation may hold
 #: several Object ports and may create an Object as well as consume one, and losing one of them

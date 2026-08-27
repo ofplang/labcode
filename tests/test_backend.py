@@ -17,6 +17,7 @@ from labcode.backend import (
     LabcodeBackend,
     labcode_backend_factory,
     make_code_resolver,
+    make_replenishment_resolver,
     make_transport_resolver,
 )
 from labcode.extension import DEFAULT_OP_TIMEOUT
@@ -383,3 +384,89 @@ def test_undeclared_output_name_is_rejected():
     # `return {"pltae": 1}`: a name outside the declared outputs is an error (typo guard).
     with pytest.raises(DeviceComputationError):
         _resolve({"pltae": 1}, {"plate": {"barcode": "P001", "_id": "abc"}})
+
+
+# -- refills -------------------------------------------------------------------
+#
+# A refill is resolved the way a transport is: by the pair that has the procedure, not
+# by the machine. What the script is handed is which machines and how much to put in.
+
+
+def _refill_env(code: str | None = None) -> dict:
+    entry: dict = {"replenisher": "dispenser", "device": "rack", "duration": 2}
+    if code is not None:
+        entry["x-labcode"] = {"script": {"language": "python", "code": code}}
+    return {
+        "time": {"unit": "second"},
+        "devices": [{"id": "rack", "spots": ["slot"], "resources": {"dye": {"capacity": 4}}}],
+        "transporters": [{"id": "arm"}],
+        "transports": [],
+        "replenishers": [{"id": "dispenser"}],
+        "replenishments": [entry],
+        "processes": {},
+    }
+
+
+def test_replenishment_resolver_matches_the_pair_exactly():
+    resolver = make_replenishment_resolver(_refill_env("FILL"))
+    assert resolver("dispenser", "rack") == "FILL"
+    assert resolver("dispenser", "other") is None  # unmatched device
+    assert resolver("other", "rack") is None  # unmatched replenisher
+
+
+def test_replenishment_resolver_none_without_script():
+    """A route with no script is a timed visit: both machines held, nothing commanded."""
+    assert make_replenishment_resolver(_refill_env())("dispenser", "rack") is None
+
+
+def test_a_refill_script_is_launched_as_a_child_with_the_pair_and_the_amounts():
+    jobs: list[dict] = []
+
+    def spawn(job):
+        jobs.append(job)
+        return _RecordingHandle()
+
+    backend = LabcodeBackend(
+        _refill_env("FILL"),
+        replenishment_resolver=make_replenishment_resolver(_refill_env("FILL")),
+        spawn=spawn,
+        seconds_per_tick=0.001,
+    )
+    try:
+        backend.dispatch_replenishment("dispenser", "rack", {"dye": 4}, duration=2)
+    finally:
+        backend.close()
+    assert len(jobs) == 1
+    assert jobs[0]["code"] == "FILL"
+    # `replenishment`, not `process`: the script acts and returns nothing, so the child
+    # must not ask it for a mapping of outputs.
+    assert jobs[0]["kind"] == "replenishment"
+    assert jobs[0]["inputs"] == {
+        "replenisher": "dispenser", "device": "rack", "amounts": {"dye": 4}
+    }
+    # No duration among them: a real refill takes as long as it takes, and the tick the
+    # plan reserved is the scheduler's estimate rather than an instruction.
+    assert "duration" not in jobs[0]["inputs"]
+
+
+def test_a_refill_without_a_script_launches_nothing():
+    jobs: list[dict] = []
+
+    def spawn(job):
+        jobs.append(job)
+        return _RecordingHandle()
+
+    backend = LabcodeBackend(_refill_env(), spawn=spawn, seconds_per_tick=0.001)
+    try:
+        backend.dispatch_replenishment("dispenser", "rack", {"dye": 4}, duration=2)
+    finally:
+        backend.close()
+    assert jobs == []
+
+
+def test_the_factory_wires_the_refill_resolver():
+    backend = labcode_backend_factory(seconds_per_tick=0.001)(_refill_env("FILL"))
+    try:
+        assert backend._replenishment_resolver("dispenser", "rack") == "FILL"
+    finally:
+        backend.close()

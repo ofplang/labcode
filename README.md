@@ -130,10 +130,7 @@ lc run <workflow> --env <env>
   machine as reachable (§1.5). The documents are still validated.
 - `--ignore-resources` — switch the consumable model off. The environment's resource
   declarations are still checked for shape but none is applied, so a bench whose devices
-  declare stocks nobody is tracking runs without the boundary saying what they held. This
-  is also the way to run an environment that declares **replenishments**: the scheduler
-  would answer it with refills, and carrying one out is not something labcode can do yet,
-  so such an environment is otherwise refused before the run starts.
+  declare stocks nobody is tracking runs without the boundary saying what they held.
 - `--trace` — record what the run did (see below). Off by default.
 - `--mission-id ID` — the campaign this run belongs to. Recorded with the run and given no
   meaning by labcode: several runs may share one, and nothing here reads it back.
@@ -156,6 +153,49 @@ lc run examples/plate_line.workflow.yaml --env examples/plate_line.env.yaml \
 The remaining options tune the replan loop rather than describe the run —
 `--poll-interval`, `--margin`, `--seed`, `--speed`, `--max-ticks`, `--no-validate` — and
 are covered by `lc run --help`.
+
+### Refilling a stock
+
+Where a device declares a consumable and the environment says a replenisher can reach it,
+a stock that would run out is **topped up instead of ending the run**. The procedure goes
+on the `replenishments[]` route — the pair is what has a procedure, while the machine has
+only an address, the same division `transporters` and `transports` have:
+
+```yaml
+replenishers:
+  - id: dispenser
+    x-labcode:
+      connection: { kind: sila2, host: 10.0.0.9, port: 50055, insecure: true }
+
+replenishments:
+  - replenisher: dispenser
+    device: reader
+    duration: 4                 # ticks: the scheduler's estimate of the visit
+    x-labcode:
+      script:
+        language: python
+        code: |
+          import time
+          time.sleep(80)        # real seconds: what the visit actually takes
+```
+
+The script is handed `replenisher`, `device` and the `amounts` the scheduler derived, and
+is expected to put that in. It is **not** handed the duration: a real refill takes as long
+as it takes, so a stand-in says so in its own code — which is why the two numbers above
+are written separately. Like a transport script it returns nothing; it acts.
+
+A route with no script runs as a timed visit: both machines are held for the declared
+duration and nothing is commanded. That is a real thing to write (an operator tops the
+stock up while the schedule waits for them) and an easy one to write by accident, so it is
+warned about.
+
+`flavor: sila2` is **refused on a refill route** for now: a sila2 script is handed clients,
+and which machine's clients a refill should receive — the replenisher's, or both ends' as a
+transport may ask for — is not settled. Use `python`.
+
+A refill holds the device it fills *and* the replenisher filling it, so it never overlaps
+the work it feeds. It is recorded (`--trace`) as a `replenishment` span naming both
+machines.
 
 ### Recording a run
 

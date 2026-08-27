@@ -34,6 +34,7 @@ from labcode.extension import (
     declared_probe,
     device_connections,
     merge_probe,
+    replenisher_connections,
     transporter_connections,
 )
 
@@ -73,7 +74,8 @@ class Target:
 
 
 def probe_targets(environment: dict) -> list[Target]:
-    """The machines `environment` asks to be probed, devices before transporters.
+    """The machines `environment` asks to be probed: devices, then transporters, then
+    replenishers.
 
     A machine is included when its effective policy (the root's defaults under its own,
     field by field) is enabled *and* it declares a usable connection. A machine with no
@@ -84,6 +86,7 @@ def probe_targets(environment: dict) -> list[Target]:
     for key, connections in (
         ("devices", device_connections(environment)),
         ("transporters", transporter_connections(environment)),
+        ("replenishers", replenisher_connections(environment)),
     ):
         overrides = _machine_policies(environment, key)
         for identifier, connection in connections.items():

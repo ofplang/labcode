@@ -69,10 +69,12 @@ from labcode.probe import (
     build_availability,
 )
 from labcode.record import (
+    ATTR_DEVICE,
     ATTR_MODE,
     ATTR_NODE,
     ATTR_OBJECT_ID,
     ATTR_PROCESS,
+    ATTR_REPLENISHER,
     ATTR_SPOT_FROM,
     ATTR_SPOT_TO,
     ATTR_TICK_END,
@@ -81,6 +83,7 @@ from labcode.record import (
     OP_FAILED,
     RUN_STOPPED,
     SPAN_PROCESS_PREFIX,
+    SPAN_REPLENISHMENT,
     SPAN_TRANSPORT,
     NullRecorder,
     Recorder,
@@ -189,6 +192,35 @@ def _transport_machines(transport: dict, transporters: dict, devices: dict, scri
     ]
 
 
+def make_replenishment_resolver(environment: dict) -> Callable:
+    """Build the labcode refill code resolver, closed over `environment`.
+
+    The returned ``resolver(replenisher, device) -> str | None`` maps a dispatched refill
+    to its env ``replenishments[]`` route's ``x-labcode.script.code``, matched exactly on
+    ``(replenisher, device)`` -- the same shape as the transport resolver, because a
+    refill is described the same way: the pair carries the procedure, the machine carries
+    only where it can be reached. None when the route has no script, and the refill then
+    runs as a plain timed visit: both machines held, nothing commanded.
+
+    No SiLA2 wrapping. A `sila2` refill script is refused by the dialect front door for
+    now -- which machine's clients it should receive is not settled -- so the code that
+    reaches here is always plain python.
+    """
+    routes: dict[tuple, str | None] = {}
+    for entry in environment.get("replenishments") or []:
+        if not isinstance(entry, dict):
+            continue
+        key = (entry.get("replenisher"), entry.get("device"))
+        xlab = entry.get("x-labcode")
+        script = xlab.get("script") if isinstance(xlab, dict) else None
+        routes[key] = python_code(script)
+
+    def resolver(replenisher, device) -> str | None:
+        return routes.get((replenisher, device))
+
+    return resolver
+
+
 def make_transport_resolver(environment: dict) -> Callable:
     """Build the labcode transport code resolver, closed over `environment`.
 
@@ -267,6 +299,7 @@ class LabcodeBackend(SubprocessBackend):
         environment,
         *,
         transport_resolver: Callable | None = None,
+        replenishment_resolver: Callable | None = None,
         id_generator: IdGenerator | None = None,
         spawn=None,
         availability: Availability | None = None,
@@ -286,6 +319,7 @@ class LabcodeBackend(SubprocessBackend):
         self._record_objects: dict[str, list[str]] = {}
         self._record_seq = 0
         self._transport_resolver = transport_resolver or (lambda *args: None)
+        self._replenishment_resolver = replenishment_resolver or (lambda *args: None)
         # Which machines the environment says to check, and what the last check found
         # (`labcode.probe`); None when it asks for no probing, so `down_devices` behaves
         # exactly as the base backend does.
@@ -496,6 +530,40 @@ class LabcodeBackend(SubprocessBackend):
             raise
         return self._dispatched(key, uuid)
 
+    def dispatch_replenishment(self, replenisher, device, amounts=None, duration=None) -> str:
+        attributes: dict[str, Any] = {
+            ATTR_DEVICE: str(device),
+            ATTR_REPLENISHER: str(replenisher),
+        }
+        # No Object identities: a refill handles a stock, and a stock is not an Object
+        # -- it has no `_id`, because nothing carries it from one operation to the next.
+        key = self._begin_record(
+            SPAN_REPLENISHMENT, attributes, duration=duration, identities=[]
+        )
+        try:
+            with self._recorder.op_active(key):
+                uuid = super().dispatch_replenishment(
+                    replenisher, device, amounts, duration=duration
+                )
+                code = self._replenishment_resolver(replenisher, device)
+                if code is not None:
+                    # What the script is handed is the pair and what to put in. No
+                    # duration: a real refill takes as long as it takes, and a mock says
+                    # so in its own code (the tick the plan reserved is the scheduler's
+                    # estimate, not an instruction).
+                    self._start_child_op(
+                        uuid, code=code, kind="replenishment",
+                        inputs={
+                            "replenisher": replenisher,
+                            "device": device,
+                            "amounts": dict(amounts or {}),
+                        },
+                    )
+        except BaseException as exc:
+            self._refused(key, exc)
+            raise
+        return self._dispatched(key, uuid)
+
 
 def _object_ids(value: Any, depth: int = 0) -> list[str]:
     """Every labcode Object identity (``_id``) reachable in `value`, in the order found and
@@ -596,6 +664,7 @@ def labcode_backend_factory(
         kwargs: dict = {
             "resolver": make_code_resolver(environment),
             "transport_resolver": make_transport_resolver(environment),
+            "replenishment_resolver": make_replenishment_resolver(environment),
             "id_generator": id_generator,
             "seconds_per_tick": seconds_per_tick,
             "speed": speed,

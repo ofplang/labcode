@@ -8,9 +8,9 @@ output verification; it just returns the script's raw result mapping. The merge,
 conformance check, and the rejection of any *extra* (undeclared) output name all happen in
 `labcode.backend.LabcodeBackend`.
 
-A transport script is side-effect only (its return is ignored). Protocol (JSON on stdin,
-outcome to ``result_path``) is identical to the upstream child; only the process branch
-differs (raw, unverified, vs verified-exactly).
+A transport or refill script is side-effect only (its return is ignored). Protocol (JSON on
+stdin, outcome to ``result_path``) is identical to the upstream child; only the process
+branch differs (raw, unverified, vs verified-exactly).
 
 If the parent is recording the run, this process joins that record (`labcode.record`) and
 what the script does to an instrument is measured where it happens. The record is finished
@@ -42,10 +42,17 @@ def main() -> int:
         return _execute(job, result_path)
 
 
+#: Kinds whose script acts rather than computes: the return is ignored, because there is
+#: no output port to fill. Listed rather than "anything that is not a process", so a kind
+#: added later has to say which it is instead of being asked for a mapping it was never
+#: written to return -- which is how a refill script first failed here.
+_SIDE_EFFECT_KINDS = frozenset({"transport", "replenishment"})
+
+
 def _execute(job: dict, result_path: str) -> int:
     try:
         raw = run_python_script(job.get("code") or "", job.get("inputs") or {})
-        if job.get("kind") == "transport":
+        if job.get("kind") in _SIDE_EFFECT_KINDS:
             payload: dict = {"outputs": {}}  # side-effect only; the return is ignored
         elif not isinstance(raw, dict):
             payload = {"error": {

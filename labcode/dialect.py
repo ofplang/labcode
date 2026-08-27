@@ -113,6 +113,9 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
     probed |= _validate_nodes(
         environment, "transporters", "transporter", root_probe, errors, warnings
     )
+    probed |= _validate_nodes(
+        environment, "replenishers", "replenisher", root_probe, errors, warnings
+    )
     if root_probe and not probed and root_probe.get("enabled") is not False:
         # A document-wide policy that reaches nothing: the run will probe no machine at
         # all, which is not what writing one says. An explicit `enabled: false` says it.
@@ -122,6 +125,7 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
         )
     _validate_processes(workflow, environment, devices, errors, warnings)
     _validate_transports(environment, transporters, devices, errors, warnings)
+    _validate_replenishments(environment, errors, warnings)
 
     return DialectResult(ok=not errors, errors=errors, warnings=warnings)
 
@@ -131,8 +135,9 @@ def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
 
 _BELONGS = (
     "it belongs at the environment root (probing defaults), on a process mode "
-    "(processes.<p>.modes[]), a transport route (transports[]), a device (devices[]) or a "
-    "transporter (transporters[])"
+    "(processes.<p>.modes[]), a transport route (transports[]), a refill route "
+    "(replenishments[]), a device (devices[]), a transporter (transporters[]) or a "
+    "replenisher (replenishers[])"
 )
 
 
@@ -402,6 +407,61 @@ def _check_mode_connection(mode: dict, label: str, devices: _NodeIndex, errors: 
 
 
 # -- transport routes -------------------------------------------------------------
+
+
+def _replenishment_label(entry: dict) -> str:
+    return (
+        f"replenishment {entry.get('replenisher')!r} -> "
+        f"{entry.get('device')!r}"
+    )
+
+
+def _validate_replenishments(environment: dict, errors: list, warnings: list) -> None:
+    """Validate the ``x-labcode.script`` on each environment ``replenishments[]`` route.
+
+    A refill script is side-effect only, like a transport's: no ports, no outputs. What
+    it is handed is the pair -- which replenisher, which device, and the `amounts` the
+    scheduler derived -- and it is expected to put that in.
+
+    A route with no script runs as a timed no-op: the two machines are held for the
+    declared duration and nothing is dispatched. That is a legitimate thing to write (an
+    operator tops the stock up while the schedule waits for them), but it is easy to
+    write by accident, so it is warned about exactly as a scriptless transport is.
+
+    `flavor: sila2` is **refused** here for now. A sila2 script is handed clients, and
+    which machine's clients a refill should get is a real question -- the replenisher's,
+    or both ends' as a transport may ask for -- that this version does not answer. An
+    error says so; silently running the script without clients would not.
+    """
+    for entry in environment.get("replenishments") or []:
+        if not isinstance(entry, dict):
+            continue
+        label = _replenishment_label(entry)
+        extension = entry.get(EXTENSION_KEY)
+        if extension is None:
+            warnings.append(
+                f"{label}: no x-labcode.script; the refill will hold both machines for "
+                f"its duration and command nothing"
+            )
+            continue
+        if not isinstance(extension, dict):
+            errors.append(f"{label}: x-labcode must be a mapping")
+            continue
+        errors.extend(
+            f"{label}: {message}"
+            for message in unknown_key_messages(extension, "x-labcode", SCRIPT_SITE_KEYS)
+        )
+        script = extension.get("script")
+        if script is None:
+            continue
+        if not _validate_script(script, label, errors, SCRIPT_KEYS):
+            continue
+        if script_flavor(script) == FLAVOR_SILA2:
+            errors.append(
+                f"{label}: x-labcode.script.flavor 'sila2' is not supported for a refill "
+                f"yet -- which machine's clients it should receive is not settled; "
+                f"use 'python'"
+            )
 
 
 def _transport_label(transport: dict) -> str:
