@@ -223,4 +223,8 @@ def run_labcode(
         result_boundary=runner.result_boundary,
         failed=runner.failed,
         failure=runner.failure,
+        # Warnings the scheduler raised, one per distinct code. `RunResult` defaults
+        # this to empty, so leaving it out would silently drop them on this route only
+        # (ofplang-run >= 0.2.0 collects them).
+        scheduler_warnings=runner.scheduler_warnings,
     )

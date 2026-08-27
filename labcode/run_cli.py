@@ -86,6 +86,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "instrument is caught by --op-timeout, not by this"
         ),
     )
+    p.add_argument(
+        # Same flag and meaning as `ofp-run run --ignore-resources`. It is spelled out
+        # again rather than inherited because this parser is our own, not upstream's.
+        "--ignore-resources", action="store_true",
+        help="switch the consumable model off (ofplang-schedule §4.7.3): the environment's"
+             " resource declarations are shape-checked but nothing is applied, so a bench that"
+             " declares stocks runs without the boundary saying what they started with",
+    )
     p.add_argument("-o", "--output", metavar="OUT", help="write the final status YAML here")
     p.add_argument("--boundary-out", metavar="FILE", help="write the result boundary document here")
     p.add_argument(
@@ -326,6 +334,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seconds_per_tick=args.seconds_per_tick,
             speed=args.speed,
             observation_out=args.observation_out,
+            ignore_resources=args.ignore_resources,
             probe=not args.no_probe,
             on_availability_change=report_availability,
             on_cadence_slip=report_cadence_slip,
@@ -352,6 +361,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (SimulatorError, RunnerError) as exc:
         print(f"lc run: execution failed: {exc}{probe_note()}", file=sys.stderr)
         return EXIT_FAILED
+
+    # What the scheduler warned about, once per distinct code. These do not fail a run,
+    # but a bench that is told nothing learns about a deprecation when it is removed.
+    for diag in result.scheduler_warnings:
+        where = f" ({diag.path})" if getattr(diag, "path", None) else ""
+        print(f"lc run: scheduler: {diag.code}{where}: {diag.message}", file=sys.stderr)
 
     write_err = None
     if args.boundary_out:
