@@ -325,6 +325,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"makespan        : {status.get('now')}")
         print(f"result boundary : {result.result_boundary}")
 
+        # Why the run stopped, when it did. `RunResult.failure` (D36) is a machine-readable
+        # `kind` and a human-readable `detail` -- the reason the failing operation gave, which
+        # `lc run` prints and this script was discarding. The status document names the
+        # activities that did not complete but never says why any of them failed, so without
+        # this the operator is left to guess between an instrument that refused the command,
+        # one that stopped answering, and a station name the arm does not have.
+        if result.failed and result.failure is not None:
+            print(
+                f"run failure     : {result.failure.kind}: {result.failure.detail}",
+                file=sys.stderr,
+            )
+
         try:
             check_outcome(status, result.result_boundary, observation)
         except CheckFailed as error:
