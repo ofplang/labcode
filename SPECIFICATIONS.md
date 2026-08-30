@@ -320,7 +320,7 @@ of the input ports of §1.2 (or the transport locals of §1.3), the code sees:
 
 | name | meaning |
 |---|---|
-| `sila2_clients` | the clients by **machine id**, in the order the operation holds its machines: a mode's `devices[]` order, or — for a transport — its `transporter`, followed by the devices at either **end of the route** when it declares `endpoints: true` |
+| `sila2_clients` | the clients by **machine id**, in the order the operation names its machines: a mode's `devices[]` order, or — for a transport — its `transporter`, followed by the devices at either **end of the route** when it declares `endpoints: true`. Named, not held: a mode declaring `device_access: false` (ofplang-schedule §4.4.2) rests on its devices rather than occupying them, and its script is still handed their clients |
 | `sila2_client` | the first of them — for a transport always its `transporter`; the one name a single-machine operation needs |
 
 ```yaml
