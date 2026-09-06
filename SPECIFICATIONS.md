@@ -124,6 +124,21 @@ output is verified. Success is "it ran without raising"; an exception is a grace
 A route with no `x-labcode.script` runs as a plain timed move — the runner's material
 bookkeeping only, with no device command (a warned no-op for a real move, from != to).
 
+**A route with no transporter.** An environment may declare a route that needs no
+transporter at all, by writing `transporter: null` (ofplang-schedule §4.6 / §5.4) — a
+device shifting material between its own spots, a chute. The plan then reports the move
+with `transporter: null` too, and this dialect matches it like any other: routes are keyed
+by `(transporter, from, to)`, so a null one matches a null one, and the script's
+`transporter` local is `None`.
+
+Such a route may carry a **`raw`** script, or none at all. It may **not** yet carry a
+`flavor: sila2` script: the front door requires the connection to open to be the route's
+transporter (§1.7), and there is none to name, so declaring one is the error *the route
+names no transporter*. Which machine should be connected to instead — the source device,
+which is the one doing the moving — is a decision this version does not take. Until it
+does, a lab whose device loads itself either drives it from a `raw` script or lets the move
+run as bookkeeping.
+
 ### 1.4 `x-labcode` on a replenishment route
 
 An environment `replenishments[]` route may carry an `x-labcode` with a `script`: the
