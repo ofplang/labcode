@@ -57,6 +57,7 @@ from labcode.extension import (
     script_endpoints,
     script_flavor,
     spot_device,
+    transport_label,
     transporter_connections,
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
@@ -245,8 +246,7 @@ def make_transport_resolver(environment: dict) -> Callable:
             code = _flavored(
                 code, script,
                 _transport_machines(transport, transporters, devices, script),
-                f"transport {transporter!r} "
-                f"{transport.get('from')} -> {transport.get('to')}",
+                transport_label(transport),
             )
         routes[key] = code
 

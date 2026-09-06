@@ -700,3 +700,85 @@ def test_an_x_labcode_somewhere_nothing_reads_still_says_where_it_belongs():
     result = validate_dialect({"processes": {}}, env)
     assert not result.ok
     assert any("replenishments[]" in e for e in result.errors)
+
+
+# -- a route with no transporter (ofplang-schedule §4.6/§5.4) -------------------------
+
+
+def _internal_env(script: dict | None = None, *, connected: bool = True) -> dict:
+    """A cycler that shifts the plate between its own two spots: `transporter: null`."""
+    route = {"transporter": None, "from": "cycler.door", "to": "cycler.block"}
+    if script is not None:
+        route["x-labcode"] = {"script": script}
+    env = _transport_env(route)
+    cycler = {"x-labcode": {"connection": CONNECTION}} if connected else {}
+    env["devices"] = [{"id": "cycler", "spots": ["door", "block"], **cycler}]
+    return env
+
+
+def test_a_transporter_less_route_needs_no_script():
+    result = validate_dialect({}, _internal_env())
+    assert result.ok, result.errors
+    assert any("no-op move" in w for w in result.warnings)
+
+
+def test_a_transporter_less_route_takes_a_raw_script():
+    result = validate_dialect(
+        {}, _internal_env({"language": "python", "code": "load_block()"})
+    )
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_a_transporter_less_sila2_script_must_ask_for_its_endpoints():
+    """There is no transporter to connect to, and `endpoints` is what asks for the ends.
+
+    Read as implicitly asked, the author would be handed clients they never requested for
+    exactly the routes where which machine is driven matters most.
+    """
+    for endpoints in (None, False):
+        script = {"language": "python", "code": "load_block()", "flavor": "sila2"}
+        if endpoints is not None:
+            script["endpoints"] = endpoints
+        result = validate_dialect({}, _internal_env(script))
+        assert not result.ok
+        assert any("add `endpoints: true`" in e for e in result.errors), result.errors
+
+
+def test_a_transporter_less_sila2_script_passes_when_it_asks():
+    result = validate_dialect(
+        {},
+        _internal_env(
+            {"language": "python", "code": "load_block()", "flavor": "sila2",
+             "endpoints": True}
+        ),
+    )
+    assert result.ok, result.errors
+    assert not result.warnings
+
+
+def test_a_transporter_less_route_with_no_reachable_end_is_an_error():
+    """A carried route only *warns* here -- it still works through its transporter.
+
+    This one has no transporter to fall back on, so there is no machine left to drive, and
+    exactly one message says so (not the warning as well).
+    """
+    result = validate_dialect(
+        {},
+        _internal_env(
+            {"language": "python", "code": "load_block()", "flavor": "sila2",
+             "endpoints": True},
+            connected=False,
+        ),
+    )
+    assert not result.ok
+    assert len(result.errors) == 1
+    assert "no machine left for the script to drive" in result.errors[0]
+    assert not result.warnings
+
+
+def test_a_transporter_less_route_is_named_in_words():
+    """`transporter!r` would print `transport None a -> b`, which reads as a broken message."""
+    result = validate_dialect({}, _internal_env())
+    assert any("transport (no transporter) cycler.door -> cycler.block" in w
+               for w in result.warnings), result.warnings

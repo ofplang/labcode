@@ -288,6 +288,40 @@ def test_a_route_within_one_device_connects_to_it_once():
     assert code.count("('cycler',") == 1
 
 
+def _internal_transport_env(**script) -> dict:
+    """A route with no transporter: the cycler shifts the plate between its own spots."""
+    env = _sila2_transport_env("cycler.door", "cycler.block", **script)
+    for entry in env["devices"]:
+        if entry["id"] == "cycler":
+            entry["spots"] = ["door", "block"]
+    env["transports"][0]["transporter"] = None
+    return env
+
+
+def test_a_transporter_less_route_drives_the_devices_at_its_ends():
+    # Nothing carries this move, so `sila2_client` -- "the first of them" -- is the source
+    # device, which is the machine that performs it. Both ends are the same device here, so
+    # it is connected to once.
+    code = make_transport_resolver(_internal_transport_env(endpoints=True))(
+        None, "cycler.door", "cycler.block"
+    )
+    assert code is not None
+    assert "('cycler', '127.0.0.1', 50055, True)" in code
+    assert "('arm'," not in code  # the arm is not on this route and is left alone
+    assert code.count("('cycler',") == 1
+
+
+def test_a_transporter_less_route_is_named_in_words_when_it_fails():
+    # The label reaches the user in a failing operation as well as a diagnostic;
+    # `transporter!r` would render it `transport None a -> b`.
+    env = _internal_transport_env(endpoints=True)
+    for entry in env["devices"]:  # nothing left with an address
+        entry.pop("x-labcode", None)
+    code = make_transport_resolver(env)(None, "cycler.door", "cycler.block")
+    assert code is not None
+    assert "transport (no transporter) cycler.door -> cycler.block" in code
+
+
 TRANSPORT_ENV = {
     "time": {"unit": "second"},
     "devices": [{"id": "s0", "spots": ["core"]}, {"id": "s1", "spots": ["core"]}],

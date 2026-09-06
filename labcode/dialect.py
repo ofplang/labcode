@@ -59,8 +59,11 @@ from labcode.extension import (
     parse_connection,
     parse_op_timeout,
     parse_probe,
+    route_transporter,
+    script_endpoints,
     script_flavor,
     spot_device,
+    transport_label,
     unknown_key_messages,
 )
 from labcode.objectid import RESERVED_ID, reserved_collisions
@@ -464,11 +467,8 @@ def _validate_replenishments(environment: dict, errors: list, warnings: list) ->
             )
 
 
-def _transport_label(transport: dict) -> str:
-    return (
-        f"transport {transport.get('transporter')!r} "
-        f"{transport.get('from')} -> {transport.get('to')}"
-    )
+# `transport_label` (extension.py) is shared with the backend, so the same route is named
+# the same way in a front-door diagnostic and in a failing operation.
 
 
 def _validate_transports(
@@ -485,7 +485,7 @@ def _validate_transports(
     for transport in environment.get("transports") or []:
         if not isinstance(transport, dict):
             continue
-        label = _transport_label(transport)
+        label = transport_label(transport)
         extension = transport.get(EXTENSION_KEY)
         if extension is None:
             if transport.get("from") != transport.get("to"):  # a real move
@@ -505,7 +505,9 @@ def _validate_transports(
             continue
         _check_transport_endpoints(transport, script, label, devices, errors, warnings)
         if script_flavor(script) == FLAVOR_SILA2:
-            _check_transport_connection(transport, label, transporters, errors)
+            _check_transport_connection(
+                transport, script, label, transporters, devices, errors
+            )
 
 
 def _check_transport_endpoints(
@@ -519,7 +521,12 @@ def _check_transport_endpoints(
     clients at all (§1.6), so the request cannot be honoured and the author expects
     something that will not happen. Asking when neither end has an address is a **warning**
     -- the route still works through its transporter, and an environment written before its
-    instruments have addresses is a legitimate intermediate state (as with `probe`)."""
+    instruments have addresses is a legitimate intermediate state (as with `probe`).
+
+    That last one holds only for a route that *has* a transporter to fall back on. A route
+    with no transporter (§4.6/§5.4) has nothing else to drive, so the same situation is an
+    error there -- reported by `_check_transport_connection`, which is where the rest of
+    that route's connection requirement lives, so that one problem yields one message."""
     endpoints = script.get("endpoints")
     prefix = f"{label}: x-labcode.script.endpoints"
     if endpoints is None:
@@ -535,8 +542,9 @@ def _check_transport_endpoints(
             f"{script_flavor(script)!r}: only a 'sila2' script is handed clients (§1.6)"
         )
         return
-    ends = [spot_device(transport.get(end)) for end in ("from", "to")]
-    named = [device for device in ends if device is not None]
+    if route_transporter(transport) is None:
+        return  # nothing to fall back on; _check_transport_connection reports it as an error
+    named = _route_ends(transport)
     if not any(device in devices.with_connection for device in named):
         warnings.append(
             f"{prefix} is true, but neither end of the route ({', '.join(named)}) declares "
@@ -544,16 +552,54 @@ def _check_transport_endpoints(
         )
 
 
+def _route_ends(transport: dict) -> list[str]:
+    """The devices at either end of a route, named and deduplicated in route order.
+
+    A move within one device names it once: it is one machine, and one client."""
+    ends = [spot_device(transport.get(end)) for end in ("from", "to")]
+    return list(dict.fromkeys(device for device in ends if device is not None))
+
+
 def _check_transport_connection(
-    transport: dict, label: str, transporters: _NodeIndex, errors: list
+    transport: dict,
+    script: dict,
+    label: str,
+    transporters: _NodeIndex,
+    devices: _NodeIndex,
+    errors: list,
 ) -> None:
-    """A `sila2` transport script drives one machine -- the transporter that carries the
-    move -- so that is where its connection has to be."""
-    identifier = transport.get("transporter")
+    """Where a `sila2` transport script's connection has to be.
+
+    Normally the transporter: it is the machine that carries the move, and the one
+    `sila2_client` names.
+
+    A route with **no transporter** (`transporter: null`, ofplang-schedule §4.6/§5.4) is
+    performed by the devices at its ends -- a cycler loading its own block -- so those are
+    what the script must be able to reach. It receives them only if it asks (`endpoints`,
+    §1.6), and it is made to ask rather than being read as asking: `endpoints` is the
+    author's statement of which machines the script drives, and inferring it here would take
+    that statement away from them for exactly the routes where it matters most. The cost of
+    requiring it is one line in the environment; the cost of assuming it is a script handed
+    clients its author never asked for."""
     prefix = f"{label}: x-labcode.script.flavor 'sila2' but"
-    if not isinstance(identifier, str) or not identifier:
-        errors.append(f"{prefix} the route names no transporter")
-    elif identifier not in transporters.declared:
-        errors.append(f"{prefix} transporter {identifier!r} is not declared in transporters[]")
-    elif identifier not in transporters.with_connection:
-        errors.append(f"{prefix} transporter {identifier!r} declares no x-labcode.connection")
+    identifier = route_transporter(transport)
+    if identifier is not None:
+        if identifier not in transporters.declared:
+            errors.append(f"{prefix} transporter {identifier!r} is not declared in transporters[]")
+        elif identifier not in transporters.with_connection:
+            errors.append(f"{prefix} transporter {identifier!r} declares no x-labcode.connection")
+        return
+    if not script_endpoints(script):
+        errors.append(
+            f"{prefix} the route names no transporter and the script does not ask for its "
+            f"endpoint clients; add `endpoints: true` so it is handed the devices at either "
+            f"end of the route, which are what performs a move nothing carries"
+        )
+        return
+    named = _route_ends(transport)
+    if not any(device in devices.with_connection for device in named):
+        errors.append(
+            f"{prefix} the route names no transporter and neither end "
+            f"({', '.join(named)}) declares an x-labcode.connection; there is no machine "
+            f"left for the script to drive"
+        )

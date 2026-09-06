@@ -55,7 +55,9 @@ still validates and schedules as plain v0. Only labcode interprets it.
   - `endpoints` (**transport routes only**, optional, default `false`): MUST be a boolean —
     whether this move is also given clients for the devices at either **end** of its route,
     not only its `transporter` (§1.7). A process mode may not declare it: a mode's machines
-    are the ones it lists.
+    are the ones it lists. A `sila2` script on a route with **no transporter** (§1.3) MUST
+    declare it `true`: the ends are then the only machines there are, and a script is never
+    given a machine it did not ask for.
 
 **Unknown keys are an error** — in `x-labcode` at every position, and in the mappings it
 holds. A key this version does not know is either a typo or a feature it does not have;
@@ -131,13 +133,16 @@ with `transporter: null` too, and this dialect matches it like any other: routes
 by `(transporter, from, to)`, so a null one matches a null one, and the script's
 `transporter` local is `None`.
 
-Such a route may carry a **`raw`** script, or none at all. It may **not** yet carry a
-`flavor: sila2` script: the front door requires the connection to open to be the route's
-transporter (§1.7), and there is none to name, so declaring one is the error *the route
-names no transporter*. Which machine should be connected to instead — the source device,
-which is the one doing the moving — is a decision this version does not take. Until it
-does, a lab whose device loads itself either drives it from a `raw` script or lets the move
-run as bookkeeping.
+Such a move is performed by the **devices at either end of the route** — for a move within
+one device, that device. So a `flavor: sila2` script on such a route must declare
+**`endpoints: true`** (§1.6), and at least one of those devices must declare a
+`connection`; either missing is a front-door error. The `endpoints` request is *required*
+rather than inferred: it is the author's statement of which machines the script drives, and
+reading it for them would decide that on exactly the routes where it matters most. A `raw`
+script, or no script at all, is unaffected — neither is handed clients.
+
+`sila2_client` is then the first machine connected to, which is the **source device**: the
+one performing the move, exactly as it is the transporter on a carried route (§1.7).
 
 ### 1.4 `x-labcode` on a replenishment route
 
@@ -226,14 +231,18 @@ a script uses it.
 - a mode script with `flavor: sila2` requires **at least one** of that mode's `devices[]`
   to declare a `connection`;
 - a transport script with `flavor: sila2` requires that route's `transporter` to declare
-  one.
+  one — or, on a route with **no transporter** (§1.3), requires `endpoints: true` and at
+  least one of the devices at its ends to declare one, those being the machines that
+  perform such a move.
 
 A transport that declares `endpoints: true` is also handed the clients of the devices at
 either **end** of its route (§1.7), but those are *not* required to declare a `connection`:
 a route through a plain holding location is ordinary, and the end without an address is
 simply not connected to (a **warning** when *neither* end has one, since then the request
-does nothing). The transporter is the one that must be reachable, because it is the machine
-that does the moving — and the one `sila2_client` names. Asking a `raw` script for endpoint
+does nothing — an **error** on a route with no transporter, which has nothing else to
+drive). The transporter is the one that must be reachable, because it is the machine that
+does the moving — and the one `sila2_client` names; where there is none, that is the source
+device, for the same reason. Asking a `raw` script for endpoint
 clients is an **error**: a raw script is handed no clients at all, so the request cannot be
 honoured.
 
@@ -335,8 +344,8 @@ of the input ports of §1.2 (or the transport locals of §1.3), the code sees:
 
 | name | meaning |
 |---|---|
-| `sila2_clients` | the clients by **machine id**, in the order the operation names its machines: a mode's `devices[]` order, or — for a transport — its `transporter`, followed by the devices at either **end of the route** when it declares `endpoints: true`. Named, not held: a mode declaring `device_access: false` (ofplang-schedule §4.4.2) rests on its devices rather than occupying them, and its script is still handed their clients |
-| `sila2_client` | the first of them — for a transport always its `transporter`; the one name a single-machine operation needs |
+| `sila2_clients` | the clients by **machine id**, in the order the operation names its machines: a mode's `devices[]` order, or — for a transport — its `transporter` (absent on a route that has none, §1.3), followed by the devices at either **end of the route** when it declares `endpoints: true`. Named, not held: a mode declaring `device_access: false` (ofplang-schedule §4.4.2) rests on its devices rather than occupying them, and its script is still handed their clients |
+| `sila2_client` | the first of them — for a transport its `transporter`, or the **source device** on a route with none (§1.3); the one name a single-machine operation needs |
 
 ```yaml
 x-labcode:
@@ -364,6 +373,12 @@ x-labcode:
   instrument it merely hands a plate to is switched off — while needing to open a lid is a
   property of the move, not of the lab. A route that does not ask still *holds* both ends, so
   reaching for one is answered with what to add rather than with silence.
+
+  On a route with **no transporter** (§1.3) a `sila2` script must ask: the ends are the only
+  machines there are, so not asking leaves nothing to open, and the front door says so rather
+  than letting the move fail when it runs. It is still asked for, not assumed — which
+  machines a script drives is the author's to state, and nowhere more so than where the
+  machine doing the moving is also the one holding the material.
 
   ```yaml
   transports:

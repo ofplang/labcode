@@ -315,6 +315,38 @@ def declared_probe(extension: Any) -> dict[str, Any]:
     return declared
 
 
+def route_transporter(transport: Any) -> str | None:
+    """The transporter carrying a transport route, or None when the route names none.
+
+    A route may declare ``transporter: null`` (ofplang-schedule SPECIFICATIONS §4.6/§5.4):
+    the move needs no transporter at all -- a device shifting material between its own
+    spots, a chute -- and is performed by the devices at its ends instead.
+
+    Anything that is not a non-empty string reads as "none" here. A malformed value is the
+    schedule environment validator's to reject, and this must not hold a second opinion
+    about it; what matters at this layer is only whether there is a transporter to drive.
+    """
+    if not isinstance(transport, dict):
+        return None
+    identifier = transport.get("transporter")
+    return identifier if isinstance(identifier, str) and identifier else None
+
+
+def transport_label(transport: Any) -> str:
+    """How a transport route is named in a message: its carrier, then its ends.
+
+    A route with no transporter says so in words. Rendering the absent id would print
+    ``transport None a -> b``, which reads as a defect in the message rather than as a fact
+    about the route -- and this label reaches the user in both a front-door diagnostic and a
+    failing operation, so it is written once and shared.
+    """
+    if not isinstance(transport, dict):
+        transport = {}
+    identifier = route_transporter(transport)
+    who = repr(identifier) if identifier is not None else "(no transporter)"
+    return f"transport {who} {transport.get('from')} -> {transport.get('to')}"
+
+
 def spot_device(spot: Any) -> str | None:
     """The device a qualified spot (``<device>.<spot>``, schedule SPECIFICATIONS §8.2)
     belongs to, or None when there is no name to take.
