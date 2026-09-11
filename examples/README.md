@@ -57,6 +57,15 @@ and writes its artifacts under [`outputs/`](outputs/):
 python examples/render_plate_line.py
 ```
 
+🔴 **These are a record of one run, not a reproducible golden.** The labcode backend
+runs its operations out of process against a **wall clock** (`seconds_per_tick`), so
+which tick a subprocess finishes on varies between runs: re-rendering the same commit
+gives a final `now` of 10 one time and 13 the next. Do not treat a difference here as a
+regression, and do not gate a change on these files being byte-identical — the way the
+scheduler's and the runner's own artifacts can be, both of those being driven by a
+virtual clock. What *is* stable is the plan the scheduler produces from a given input,
+which the tests cover.
+
 - [`outputs/plate_line.plan.yaml`](outputs/plate_line.plan.yaml) — the **final execution
   schedule** (the §6/§7 status document: every activity, `completed`).
 - [`outputs/plate_line.observation.yaml`](outputs/plate_line.observation.yaml) — the

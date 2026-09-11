@@ -99,7 +99,8 @@ described below.
 lc run <workflow> --env <env>
     [--boundary DOC] [-o OUT] [--boundary-out FILE] [--observation-out FILE]
     [--seconds-per-tick S] [--op-timeout S | --no-op-timeout] [--no-probe]
-    [--ignore-resources] [--trace] [--mission-id ID] [--object-ids seeded|real]
+    [--max-transport-legs N] [--ignore-resources] [--trace] [--mission-id ID]
+    [--object-ids seeded|real]
 ```
 
 - `<workflow>` — the portable v0 workflow: *what* happens.
@@ -132,6 +133,15 @@ lc run <workflow> --env <env>
   else 7200 real seconds. The two forms exclude each other.
 - `--no-probe` — ignore the environment's `x-labcode.probe` policies and treat every
   machine as reachable (§1.6). The documents are still validated.
+- `--max-transport-legs N` — how many transport activities one Object-bearing arc may
+  be carried in (schedule spec §6.4.1), joined by **relay** activities. It is 1 by
+  default: the single hop. Raise it where the transporter cannot reach an instrument
+  from where the plate is — a bench it serves from one position only, or a hand-off
+  station a plate has to cross — and the move is planned as the shortest chain between
+  the two spots instead of being reported unreachable. Only the fewest possible moves
+  are offered, so a plate one move away is never sent round by way of somewhere else.
+  This describes the laboratory's reach rather than tuning the loop, which is why it is
+  here and not among the replan knobs below.
 - `--ignore-resources` — switch the consumable model off. The environment's resource
   declarations are still checked for shape but none is applied, so a bench whose devices
   declare stocks nobody is tracking runs without the boundary saying what they held.

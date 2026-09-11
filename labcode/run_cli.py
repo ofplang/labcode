@@ -66,6 +66,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="running-task margin for replans (default: the poll interval)",
     )
     p.add_argument(
+        "--max-transport-legs", type=int, default=1, metavar="N",
+        help="how many transport activities one Object-bearing arc may be carried in "
+             "(default 1: the single hop), joined by relays -- raise it for an "
+             "instrument the transporter reaches at one position only, or a plate "
+             "that has to cross a hand-off station",
+    )
+    p.add_argument(
         "--poll-interval", type=int, default=1, metavar="D",
         help="poll every D time units (default 1)",
     )
@@ -329,6 +336,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             running_task_margin=args.margin,
             random_seed=args.seed,
             poll_interval=args.poll_interval,
+            # How many moves one arc may be carried in (schedule SPEC §6.4.1). Passed
+            # through rather than decided here: it is the scheduler's offer, and a real
+            # laboratory is exactly where an instrument reachable from one position
+            # only makes the single hop insufficient.
+            max_transport_legs=args.max_transport_legs,
             # 0 is "no limit" here as it is upstream; the runner spells that None.
             max_ticks=args.max_ticks or None,
             seconds_per_tick=args.seconds_per_tick,
