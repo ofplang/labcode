@@ -41,10 +41,16 @@ classifiers = [
 # `dispatch_replenishment` seam and the `kind: replenishment` the child harness has to
 # recognise as side-effect only.
 #
-# `ofplang-schedule>=0.8` is required, not merely tested against: `lc run` passes
-# `--max-transport-legs` through to it (schedule SPEC §6.4.1), and a job may leave a
-# running plan (§6.11), which needs the `withdraw` argument and the levels carried
-# forward with it. The `>=0.5` floor it replaces was required because an environment may
+# `ofplang-schedule>=0.9` and `ofplang-run>=0.8` are required together, not merely
+# tested against: the runner now carries the plan itself from one replan to the next
+# instead of rebuilding a status, and the scheduler is what makes that possible -- it
+# derives what a stopped job is still holding rather than being told, takes
+# `carry_levels_to_now` so a departing job's draws are not handed back, and replans a
+# pending refill rather than refusing the document carrying one. Pairing an older
+# scheduler with this runner has every replan refused, and a refused replan stops
+# every job of the run. The `>=0.8` floor it replaces was required because `lc run`
+# passes `--max-transport-legs` through (schedule SPEC §6.4.1) and a job may leave a
+# running plan (§6.11). The `>=0.5` floor before that was required because an environment may
 # declare a route that needs no transporter (`transporter: null`, schedule §4.6/§5.4) and
 # this dialect accepts a `sila2` script on one, but an older scheduler refuses the
 # environment with `wrong_type` before there is a plan to run -- and `ofplang-run>=0.6` is
@@ -64,8 +70,8 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.2,<0.3",
-    "ofplang-schedule>=0.8,<0.9",
-    "ofplang-run>=0.7,<0.8",
+    "ofplang-schedule>=0.9,<0.10",
+    "ofplang-run>=0.8,<0.9",
 ]
 
 [project.urls]
