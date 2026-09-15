@@ -61,6 +61,12 @@ classifiers = [
 # workflow acceptance of 0.1.3. CI resolves the siblings from PyPI, so every run of this suite and
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
+#
+# 🔴 The `<0.11` / `<0.10` bounds are bounds, not floors. schedule 0.10 refuses two jobs
+# binding one boundary spot where it used to warn, and run 0.9 records a backend's
+# refusal as the activity failing instead of letting it escape `run()`. Both change what
+# happens to a document or a run this package hands over, not anything this package
+# calls, so the floors stay where they are and only the bounds move to admit them.
 dependencies = [
 # Upper bounds are deliberate. A sibling's minor version is where a
 # specification revision lands, and a revision may reject documents an earlier one
@@ -70,8 +76,8 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.2,<0.3",
-    "ofplang-schedule>=0.9,<0.10",
-    "ofplang-run>=0.8,<0.9",
+    "ofplang-schedule>=0.9,<0.11",
+    "ofplang-run>=0.8,<0.10",
 ]
 
 [project.urls]
