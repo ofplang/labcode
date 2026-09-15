@@ -62,11 +62,16 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# 🔴 The `<0.11` / `<0.10` bounds are bounds, not floors. schedule 0.10 refuses two jobs
-# binding one boundary spot where it used to warn, and run 0.9 records a backend's
-# refusal as the activity failing instead of letting it escape `run()`. Both change what
-# happens to a document or a run this package hands over, not anything this package
-# calls, so the floors stay where they are and only the bounds move to admit them.
+# 🔴 The schedule `<0.11` bound is a bound, not a floor: 0.10 refuses two jobs binding one
+# boundary spot where it used to warn, which changes what happens to a document this
+# package hands over rather than anything it calls.
+#
+# 🔴 `ofplang-run>=0.11` **is** a floor, and required: `lc run --jobs` mints an Object
+# `_id` per job, and the job reaches the device model that mints it only from 0.11 -- the
+# runner offers provenance one keyword at a time, and 0.10 offered the job to a dispatch
+# but not to the model, which is where an identity is made. Against an older runner two
+# jobs of one workflow would mint one identity for two plates: the same `_id` on two
+# physical objects, silently, and the same way on every run.
 dependencies = [
 # Upper bounds are deliberate. A sibling's minor version is where a
 # specification revision lands, and a revision may reject documents an earlier one
@@ -77,7 +82,7 @@ dependencies = [
 # in now rather than at the first breakage.
     "ofplang-validate>=0.2,<0.3",
     "ofplang-schedule>=0.9,<0.11",
-    "ofplang-run>=0.8,<0.10",
+    "ofplang-run>=0.11,<0.12",
 ]
 
 [project.urls]

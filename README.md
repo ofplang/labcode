@@ -101,9 +101,29 @@ lc run <workflow> --env <env>
     [--seconds-per-tick S] [--op-timeout S | --no-op-timeout] [--no-probe]
     [--max-transport-legs N] [--ignore-resources] [--trace] [--mission-id ID]
     [--object-ids seeded|real]
+
+lc run --jobs <run doc> --env <env> [--on-job-failure continue|stop] [...]
 ```
 
 - `<workflow>` — the portable v0 workflow: *what* happens.
+- `--jobs RUNDOC` — run **several jobs together** in one laboratory (schedule SPEC
+  §6.11) in place of the single `<workflow>`. The run document names each job — an `id`,
+  its workflow, its own boundary, and when it may start — plus what the laboratory's own
+  stocks hold to begin with and which spots it is already holding. They are planned
+  *together*, so they compete for the same machines and share a refill neither needs
+  alone. Each job's workflow goes through both front doors separately and a rejection
+  names the job it came from; a boundary belongs to a job, so `--boundary` is not used
+  with `--jobs`.
+  🔴 Object identities are minted **per job**: two jobs of one workflow bind the same
+  port names and render the same node paths, so a reproducible generator keyed on those
+  alone would give one job's plate the other's `_id`. `--trace` records the job on every
+  operation (`ofp.job`) for the same reason — the node alone does not say whose work it
+  was. A run of a single workflow names no job and is recorded exactly as it always was.
+- `--on-job-failure continue|stop` — what one job's failure does to the rest of a
+  `--jobs` run. `continue` (the default) stops that job alone and lets the others
+  finish — which is why they were planned together — while `stop` stops the whole run.
+  A stopped job's plate stays where it is, and the plan is made around it rather than
+  onto it. A single workflow is a single job, so this makes no difference to it.
 - `--env` (required) — the labcode environment: the execution environment (spec §5) plus
   the `x-labcode` extension saying *how* each operation is carried out.
 - `--boundary DOC` — the whole-workflow I/O as one document: a `boundary:` mapping with a

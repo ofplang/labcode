@@ -121,17 +121,31 @@ def entry_object_inputs(workflow: dict) -> dict[str, str]:
     return result
 
 
+def _key(job: str | None, rest: str) -> str:
+    """A mint key, prefixed by the job where there is one (SPEC §6.11).
+
+    🔴 **Only where there is one.** Two jobs of one workflow bind the same port names
+    and render the same node paths, so without the job a reproducible generator gives
+    one job's plate the other's identity -- silently, and the same way every run. But a
+    run of a *single* workflow names no job, and prefixing there would change every id
+    labcode has ever minted for one: the checked-in example observations are that
+    invariant, and a run that was reproducible must stay reproducible in the same way.
+    """
+    return f"job:{job}:{rest}" if job else rest
+
+
 def inject_boundary_ids(
-    boundary: dict | None, workflow: dict, id_gen: IdGenerator
+    boundary: dict | None, workflow: dict, id_gen: IdGenerator, job: str | None = None
 ) -> dict | None:
     """Return `boundary` with each Object input's view carrying an ``_id``.
 
     For every Object-bearing entry input, ensure ``boundary.inputs[port].view`` exists,
     fill any declared view field the user omitted with a typed default, and mint ``_id``
-    (keyed by the port) unless one is already present -- so a result boundary fed back in
-    round-trips its ids. `workflow` must be the ``_id``-injected document (so the view
-    schema includes ``_id``). Returns `boundary` unchanged when it is None or has no
-    Object inputs. Mutates a deep copy, not the caller's dict."""
+    (keyed by the port, and by `job` where the run names one) unless one is already
+    present -- so a result boundary fed back in round-trips its ids. `workflow` must be
+    the ``_id``-injected document (so the view schema includes ``_id``). Returns
+    `boundary` unchanged when it is None or has no Object inputs. Mutates a deep copy,
+    not the caller's dict."""
     obj_inputs = entry_object_inputs(workflow)
     if boundary is None or not obj_inputs:
         return boundary
@@ -149,7 +163,7 @@ def inject_boundary_ids(
             if field != RESERVED_ID and field not in view:
                 view[field] = _default_field(descriptor)
         if not view.get(RESERVED_ID):
-            view[RESERVED_ID] = id_gen.new_id(f"boundary:{port}")
+            view[RESERVED_ID] = id_gen.new_id(_key(job, f"boundary:{port}"))
         desc["view"] = view
     return out
 
@@ -191,6 +205,7 @@ def stamp_object_ids(
     node,
     id_gen: IdGenerator,
     output_schema: dict | None = None,
+    job: str | None = None,
 ) -> dict:
     """Stamp ``_id`` onto a process op's produced Object output views (mutates `outputs`).
 
@@ -206,10 +221,12 @@ def stamp_object_ids(
       returned the port explicitly (overwriting the carried view).
     * A **created** Object output (``objects.create``) whose ``_id`` is empty/absent gets
       a freshly minted id, keyed by this node instance + port -- so two creates of the
-      same process (different nodes) get distinct, reproducible ids.
+      same process (different nodes) get distinct, reproducible ids -- **and by the job
+      where the run names one**, since two jobs of one workflow render the same node
+      path and would otherwise mint one identity for two plates.
 
-    `node` is the workflow provenance (a node-path tuple, or None); `inputs` are the op's
-    input views."""
+    `node` is the workflow provenance (a node-path tuple, or None) and `job` which job of
+    a joint run this is (or None); `inputs` are the op's input views."""
     created, mapped = _object_output_ports(definition)
     for port in (*mapped, *created):
         if not _declares_id(output_schema, port):
@@ -227,5 +244,5 @@ def stamp_object_ids(
     for port in created:
         view = outputs.get(port)
         if isinstance(view, dict) and not view.get(RESERVED_ID):
-            view[RESERVED_ID] = id_gen.new_id(f"node:{node_key}:{port}")
+            view[RESERVED_ID] = id_gen.new_id(_key(job, f"node:{node_key}:{port}"))
     return outputs

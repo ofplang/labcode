@@ -71,6 +71,7 @@ from labcode.probe import (
 )
 from labcode.record import (
     ATTR_DEVICE,
+    ATTR_JOB,
     ATTR_MODE,
     ATTR_NODE,
     ATTR_OBJECT_ID,
@@ -408,7 +409,8 @@ class LabcodeBackend(SubprocessBackend):
             self._record_objects.pop(key, None)
             self._recorder.op_finished(key, error_type=RUN_STOPPED, message="the run ended first")
 
-    def _resolve_model(self, process, mode, inputs, output_schema, definition, node=None):
+    def _resolve_model(self, process, mode, inputs, output_schema, definition,
+                       node=None, job=None):
         """The value model `_complete` calls at completion: merge the script's *partial*
         outputs onto the defaults (§1.2), then stamp Object identities (`_id`).
 
@@ -416,13 +418,20 @@ class LabcodeBackend(SubprocessBackend):
         defaults); the script's returned values override it. A returned name outside
         `output_schema` is a runtime failure. `stamp_object_ids` then mints ``_id`` for a
         created Object and carries it for a mapped one (keyed by `node`, the workflow
-        provenance). A timed op (no child) or a child error is handled as in the base
-        backend."""
+        provenance, **and by `job`** -- two jobs of one workflow render the same node
+        path, so the node alone would mint one identity for two plates). A timed op (no
+        child) or a child error is handled as in the base backend.
+
+        🔴 Both halves arrive here rather than at dispatch because this is where an
+        identity is *made*: the runner offers provenance to a model that declares it
+        (`ofplang-run` >= 0.11), and the simulator carries it on the operation from the
+        dispatch that started it."""
         pending = self._pending
         if not isinstance(pending, dict):  # the _TIMED sentinel: no child ran
             outputs = default_device_model(process, mode, inputs, output_schema, definition)
             return stamp_object_ids(
-                outputs, definition, inputs or {}, node, self._id_gen, output_schema
+                outputs, definition, inputs or {}, node, self._id_gen, output_schema,
+                job=job,
             )
         if "error" in pending:
             err = pending["error"]
@@ -438,7 +447,8 @@ class LabcodeBackend(SubprocessBackend):
             )
         base = default_device_model(process, mode, inputs, output_schema, definition)
         return stamp_object_ids(
-            {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema
+            {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema,
+            job=job,
         )
 
     def advance(self, until: int) -> int:
@@ -484,11 +494,15 @@ class LabcodeBackend(SubprocessBackend):
 
     def dispatch_processing(
         self, process, mode, duration=None, output_schema=None, inputs=None,
-        definition=None, node=None,
+        definition=None, node=None, job=None,
     ) -> str:
         attributes: dict[str, Any] = {ATTR_PROCESS: str(process), ATTR_MODE: str(mode)}
         if node:
             attributes[ATTR_NODE] = "/".join(str(step) for step in node)
+        # Recorded beside the node, and absent where the run names no job: a record of a
+        # single workflow says exactly what it always said.
+        if job:
+            attributes[ATTR_JOB] = str(job)
         key = self._begin_record(
             f"{SPAN_PROCESS_PREFIX}{process}", attributes,
             duration=duration, identities=_object_ids(inputs),
@@ -497,17 +511,22 @@ class LabcodeBackend(SubprocessBackend):
             with self._recorder.op_active(key):
                 uuid = super().dispatch_processing(
                     process, mode, duration=duration, output_schema=output_schema,
-                    inputs=inputs, definition=definition, node=node,
+                    inputs=inputs, definition=definition, node=node, job=job,
                 )
         except BaseException as exc:
             self._refused(key, exc)
             raise
         return self._dispatched(key, uuid)
 
-    def dispatch_transport(self, transporter, from_spot, to_spot, duration=None, view=None) -> str:
+    def dispatch_transport(self, transporter, from_spot, to_spot, duration=None,
+                           view=None, job=None) -> str:
         attributes: dict[str, Any] = {ATTR_SPOT_FROM: str(from_spot), ATTR_SPOT_TO: str(to_spot)}
         if transporter is not None:
             attributes[ATTR_TRANSPORTER] = str(transporter)
+        # Two jobs of one workflow can move between the same pair of spots, so the route
+        # alone does not say whose plate this was.
+        if job:
+            attributes[ATTR_JOB] = str(job)
         key = self._begin_record(
             SPAN_TRANSPORT, attributes, duration=duration, identities=_object_ids(view)
         )
@@ -516,7 +535,7 @@ class LabcodeBackend(SubprocessBackend):
             # starts and the transport's own child land under this operation.
             with self._recorder.op_active(key):
                 uuid = super().dispatch_transport(
-                    transporter, from_spot, to_spot, duration=duration, view=view
+                    transporter, from_spot, to_spot, duration=duration, view=view, job=job
                 )
                 code = self._transport_resolver(transporter, from_spot, to_spot)
                 if code is not None:

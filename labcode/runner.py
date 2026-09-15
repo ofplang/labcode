@@ -17,7 +17,8 @@ building block; using it on an Object workflow without this runner fails (no rew
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Literal
 
 from ofplang.run.app import RunResult
@@ -39,9 +40,17 @@ class LabcodeRunner(RollingRunner):
 
     `workflow` and `environment` are each a path or an already-loaded document (the
     `lc run` front door passes the environment it has already read for its dialect check,
-    so the file is not read twice). Object types are rewritten to declare ``_id``, the boundary's
-    Object inputs are minted, and the labcode backend is wired with a shared `IdGenerator`
-    (default: reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
+    so the file is not read twice). `workflow` may instead be a **list of `JobRequest`s**
+    -- a run of several jobs planned together (schedule SPEC §6.11), each with its own
+    workflow, boundary and release. Everything labcode does to a workflow is then done
+    per job, and the identities are minted **per job**: two jobs of one workflow bind the
+    same port names and render the same node paths, so a reproducible generator keyed on
+    those alone would give one job's plate the other's `_id`. `boundary` must be left
+    unset for a roster, each job carrying its own.
+
+    Object types are rewritten to declare ``_id``, the boundary's Object inputs are
+    minted, and the labcode backend is wired with a shared `IdGenerator` (default:
+    reproducible, seeded). `seconds_per_tick` / `speed` / `spawn` / `monotonic` /
     `sleep` configure the wall-clock backend, `probe` / `prober` /
     `on_availability_change` its availability probing (`labcode.probe`), and `op_timeout`
     how long one operation may run before it is stopped and failed (default: whatever the
@@ -94,14 +103,13 @@ class LabcodeRunner(RollingRunner):
         recorder: Recorder | None = None,
         **rolling_kwargs,
     ) -> None:
-        doc = workflow if isinstance(workflow, dict) else load_document(workflow)
-        if not isinstance(doc, dict):
-            raise RunnerError("workflow must be a mapping")
-        clashes = reserved_collisions(doc)
-        if clashes:
+        roster = workflow if isinstance(workflow, Sequence) and not isinstance(
+            workflow, (str, bytes)
+        ) else None
+        if roster is not None and boundary is not None:
             raise RunnerError(
-                f"type(s) {clashes} declare the reserved view field '_id'; labcode owns it "
-                f"as an implicit Object identity and it must not be declared"
+                "a run of named jobs carries a boundary per job; pass each job's "
+                "boundary on its JobRequest rather than one for the run"
             )
         # A recorded run mints **real** ids by default: a reproducible generator gives the same
         # `_id` to the same port on every run, which is what makes the checked-in example
@@ -120,8 +128,27 @@ class LabcodeRunner(RollingRunner):
         self._on_trace_id = on_trace_id
         #: The id an operator can find this run's record by, once `run` has started it.
         self.trace_id: str | None = None
-        rewritten = inject_id_field(doc)
-        boundary = inject_boundary_ids(boundary, rewritten, self.id_generator)
+        # The same three steps per job, or once for a lone workflow: refuse a type that
+        # declares the reserved field, rewrite the Object types to carry `_id`, and mint
+        # the boundary's ids -- keyed by the job where the run names one.
+        if roster is None:
+            rewritten = self._prepare(workflow)
+            boundary = inject_boundary_ids(boundary, rewritten, self.id_generator)
+            target: object = rewritten
+        else:
+            prepared = []
+            for request in roster:
+                job_doc = self._prepare(request.workflow)
+                prepared.append(
+                    replace(
+                        request,
+                        workflow=job_doc,
+                        boundary=inject_boundary_ids(
+                            request.boundary, job_doc, self.id_generator, job=request.id
+                        ),
+                    )
+                )
+            target = prepared
         factory = labcode_backend_factory(
             seconds_per_tick=seconds_per_tick,
             speed=speed,
@@ -143,7 +170,7 @@ class LabcodeRunner(RollingRunner):
         if running_task_margin is None:
             running_task_margin = poll_interval if poll_interval is not None else 1
         super().__init__(
-            rewritten,
+            target,
             environment,
             boundary,
             backend_factory=factory,
@@ -151,6 +178,24 @@ class LabcodeRunner(RollingRunner):
             running_task_margin=running_task_margin,
             **rolling_kwargs,
         )
+
+    def _prepare(self, workflow) -> dict:
+        """One workflow, loaded and made a labcode workflow: the reserved-field check
+        and the ``_id`` type rewrite.
+
+        Per job rather than per run, because a roster's jobs need not run the same
+        workflow -- and because a job that declares the reserved field should be named
+        by the error rather than leaving the reader to find which of several it was."""
+        doc = workflow if isinstance(workflow, dict) else load_document(workflow)
+        if not isinstance(doc, dict):
+            raise RunnerError("workflow must be a mapping")
+        clashes = reserved_collisions(doc)
+        if clashes:
+            raise RunnerError(
+                f"type(s) {clashes} declare the reserved view field '_id'; labcode owns it "
+                f"as an implicit Object identity and it must not be declared"
+            )
+        return inject_id_field(doc)
 
     def run(self) -> dict:
         """Drive the workflow to completion, recording the run around it.
@@ -166,9 +211,37 @@ class LabcodeRunner(RollingRunner):
         except BaseException as exc:
             self._finish_record(type(exc).__name__, str(exc))
             raise
-        failure = self.failure
-        self._finish_record(*((failure.kind, failure.detail) if failure else (None, None)))
+        self._finish_record(*self._record_reason())
         return status
+
+    def _record_reason(self) -> tuple[str | None, str | None]:
+        """Why the run ended, for the record: one reason, however many jobs had one.
+
+        A run of a *laboratory* can stop several jobs for unrelated reasons (SPEC §6.11),
+        and `--on-job-failure continue` is what makes that the ordinary case rather than
+        a curiosity. The record keeps one run rather than one per job, so the reasons are
+        gathered into its message -- naming only the first would hide the rest, which is
+        the same conclusion the CLI reached about what it prints.
+
+        The `error_type` stays the run's own, because that is the code a reader filters
+        on, and a run of a single workflow is reported exactly as it always was: one job,
+        unnamed, one reason.
+        """
+        failure = self.failure
+        jobs = self.jobs
+        if len(jobs) == 1 and not jobs[0].id:  # a single workflow is a single job
+            return (failure.kind, failure.detail) if failure else (None, None)
+        per_job = [(job.id, job.failure) for job in jobs if job.failure is not None]
+        if not per_job:
+            # A failure belonging to no job: a refill that failed, or a replan nothing
+            # could be planned from. Neither can be attributed, and both stop everything.
+            return (failure.kind, failure.detail) if failure else (None, None)
+        return (
+            failure.kind if failure is not None else per_job[0][1].kind,
+            "; ".join(
+                f"{job_id}: {reason.kind}: {reason.detail}" for job_id, reason in per_job
+            ),
+        )
 
     def _finish_record(self, error_type: str | None, message: str | None) -> None:
         self.recorder.run_finished(error_type=error_type, message=message)
@@ -191,6 +264,11 @@ def run_labcode(
 ) -> RunResult:
     """Drive `workflow` on the labcode backend (with Object ``_id`` injected/minted) to
     completion and return a `RunResult` -- the labcode analogue of `ofplang.run.run_workflow`.
+
+    `workflow` may be a list of `JobRequest`s instead, a run of several jobs planned
+    together (schedule SPEC §6.11) -- `lc run --jobs`. `boundary` is then left unset,
+    each job carrying its own, and `on_job_failure` says what one job's failure does to
+    the rest.
 
     The caller is expected to have validated the workflow (the `lc run` front doors); this
     runs trusting. The labcode backend holds child processes, so its `close` is called in a

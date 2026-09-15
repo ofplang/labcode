@@ -1,0 +1,6 @@
+# Two runs of the transport fixture through one laboratory.
+jobs:
+  - id: morning
+    workflow: transport.workflow.yaml
+  - id: afternoon
+    workflow: transport.workflow.yaml

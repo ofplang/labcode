@@ -28,6 +28,7 @@ import argparse
 import contextlib
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -37,6 +38,7 @@ from ofplang.run.runner import (
     ContractSyntaxError,
     RunnerError,
     load_document,
+    parse_run_document,
     serialize_document,
 )
 from ofplang.run.simulator import SimulatorError
@@ -57,9 +59,28 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="lc run",
         description="Run an ofplang v0 workflow on the labcode backend (env x-labcode scripts).",
     )
-    p.add_argument("workflow", metavar="WORKFLOW", help="ofplang v0 workflow YAML")
+    p.add_argument(
+        "workflow", metavar="WORKFLOW", nargs="?",
+        help="ofplang v0 workflow YAML (omit when --jobs names a run document)",
+    )
+    p.add_argument(
+        "--jobs", metavar="RUNDOC",
+        help="run document (YAML): a `jobs:` list naming each job's id, workflow, "
+        "boundary and release, plus the laboratory's own starting `inventories` and "
+        "`occupied` spots. The jobs are planned TOGETHER (schedule SPEC §6.11), so they "
+        "compete for the same machines and share the refills neither needs alone. Each "
+        "job's Object identities are minted per job, so two jobs of one workflow are "
+        "told apart in the record and in every `_id`",
+    )
     p.add_argument("--env", required=True, metavar="ENV", help="execution environment YAML (§5)")
     p.add_argument("--boundary", metavar="DOC", help="run boundary document (§6.8 / value layer)")
+    p.add_argument(
+        "--on-job-failure", choices=("continue", "stop"), default="continue", metavar="POLICY",
+        help="what one job's failure does to the rest of a --jobs run (§6.11): "
+        "`continue` (the default) stops that job alone and lets the others finish -- "
+        "which is why they were planned together -- while `stop` stops the whole run. A "
+        "single workflow is a single job, so this makes no difference to it",
+    )
     p.add_argument("--seed", type=int, metavar="N", help="scheduler random seed")
     p.add_argument(
         "--margin", type=int, default=None, metavar="M",
@@ -210,8 +231,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = _build_parser().parse_args(argv)
 
-    for label, path in (("workflow", args.workflow), ("environment", args.env)):
-        if not Path(path).is_file():
+    # One form or the other: a workflow, or a run document naming several jobs. A
+    # boundary belongs to a job, so a roster carries one per job rather than one for the
+    # run -- passing both would be two answers to the same question.
+    if bool(args.workflow) == bool(args.jobs):
+        print("lc run: give either a WORKFLOW or --jobs RUNDOC, not both", file=sys.stderr)
+        return EXIT_USAGE
+    if args.jobs and args.boundary:
+        print(
+            "lc run: --boundary applies to a single workflow; with --jobs each job "
+            "carries its own boundary in the run document",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    for label, path in (
+        ("workflow", args.workflow), ("run document", args.jobs), ("environment", args.env)
+    ):
+        if path and not Path(path).is_file():
             print(f"lc run: {label} not found: {path!r}", file=sys.stderr)
             return EXIT_USAGE
 
@@ -242,28 +279,65 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.mission_id and not args.trace:
         print("lc run: warning: --mission-id is only recorded with --trace", file=sys.stderr)
 
-    # Shared workflow front door (ofplang-validate + capability gate; validate skippable).
-    fd = front_door_check(args.workflow, validate=not args.no_validate)
-    if not fd.ok:
-        _print_front_door(fd)
-        return EXIT_USAGE
-
-    # labcode dialect front door: validate the env x-labcode extension (P5) over the
-    # workflow (for (1)/(2) exclusivity) and the environment. Warnings are printed but do
-    # not block; errors are a usage error. Use the *expanded* workflow the shared front
-    # door already resolved (`fd.document`), so `$import` is applied once, no second read
-    # happens, and imported types/ops are visible to the dialect check and `_id` setup.
-    workflow_doc = fd.document or {}
     env_doc, err = _read_document(args.env, "environment")
     if err is not None:
         return err
-    dialect = validate_dialect(workflow_doc, env_doc or {})
-    for warning in dialect.warnings:
-        print(f"lc run: warning: {warning}", file=sys.stderr)
-    if not dialect.ok:
-        for error in dialect.errors:
-            print(f"lc run: x-labcode error: {error}", file=sys.stderr)
-        return EXIT_USAGE
+
+    run_doc = None
+    if args.jobs:
+        doc, err = _read_document(args.jobs, "run document")
+        if err is not None:
+            return err
+        try:
+            run_doc = parse_run_document(doc or {}, Path(args.jobs).parent)
+        except RunnerError as exc:
+            print(f"lc run: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+
+    # Both front doors, per job. The shared one (ofplang-validate + capability gate) and
+    # the labcode dialect one (the env's x-labcode extension read over *this* workflow,
+    # for (1)/(2) exclusivity and the no-op warnings) are about a workflow, so a roster
+    # goes through them one job at a time -- and the failing job is named, since several
+    # jobs commonly run the same file and a diagnostic that does not say which job it
+    # came from sends the reader to the wrong place.
+    #
+    # The *expanded* workflow the shared front door resolved (`fd.document`) is what goes
+    # on: `$import` is applied once, no second read happens, and imported types / ops are
+    # visible to the dialect check and to the `_id` setup.
+    def _doors(workflow, where: str):
+        fd = front_door_check(workflow, validate=not args.no_validate)
+        if not fd.ok:
+            if where:
+                print(f"lc run: {where}:", file=sys.stderr)
+            _print_front_door(fd)
+            return None
+        expanded = fd.document or {}
+        dialect = validate_dialect(expanded, env_doc or {})
+        prefix = f"{where}: " if where else ""
+        for warning in dialect.warnings:
+            print(f"lc run: warning: {prefix}{warning}", file=sys.stderr)
+        if not dialect.ok:
+            for error in dialect.errors:
+                print(f"lc run: x-labcode error: {prefix}{error}", file=sys.stderr)
+            return None
+        return expanded
+
+    target: object
+    if run_doc is not None:
+        requests = []
+        for request in run_doc.jobs:
+            expanded = _doors(request.workflow, f"job {request.id!r}")
+            if expanded is None:
+                return EXIT_USAGE
+            requests.append(replace(request, workflow=expanded))
+        target = requests
+        workflow_doc: dict = {}
+    else:
+        expanded = _doors(args.workflow, "")
+        if expanded is None:
+            return EXIT_USAGE
+        workflow_doc = expanded
+        target = workflow_doc
 
     boundary = None
     if args.boundary:
@@ -323,7 +397,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # declare `_id`, mint the boundary's Object ids, share one IdGenerator with the
         # backend); it runs the rewritten document in memory (no temp file).
         result = run_labcode(
-            workflow_doc,
+            target,
             # The environment document read above, not its path: the dialect front door
             # already parsed it, and the runner takes a document (ofplang-run >= 0.1.13),
             # so the file is read once. The plan's `meta.environment` reads `<in-memory>`
@@ -357,6 +431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else FROM_ENVIRONMENT if args.op_timeout is None
                 else args.op_timeout
             ),
+            on_job_failure=args.on_job_failure,
             trace=args.trace,
             mission_id=args.mission_id,
             on_trace_id=report_trace_id,
@@ -389,7 +464,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     write_err = _emit(result.status, args.output) or write_err
     if result.failed:
         failure = result.failure
-        if failure is not None:
+        # A run of named jobs reports one line per job that stopped: they stopped for
+        # unrelated reasons and naming only the first would hide the rest. A failure
+        # belonging to no job -- an unplannable replan, a refill that failed -- leaves
+        # that list empty and falls through to the run-level line, which is also the only
+        # line a single workflow ever prints.
+        if result.job_failures:
+            for job_id, reason in result.job_failures:
+                print(
+                    f"lc run: job {job_id!r} failed: {reason.kind}: {reason.detail}"
+                    f"{probe_note()}{timeout_note(reason.kind)}",
+                    file=sys.stderr,
+                )
+        elif failure is not None:
             print(
                 f"lc run: execution failed: {failure.kind}: {failure.detail}"
                 f"{probe_note()}{timeout_note(failure.kind)}",

@@ -51,6 +51,11 @@ ATTR_MISSION = "mission.id"
 #: Where in the workflow this operation came from, and what it was assigned to. These are
 #: *pointers* into the workflow and environment documents, not copies of them.
 ATTR_NODE = "ofp.node"
+#: Which job of a joint run (`lc run --jobs`, schedule SPEC §6.11) the operation belongs
+#: to. Absent on a run of a single workflow, which names no job. Recorded beside the node
+#: because the node alone does not identify the work: two jobs of one workflow render the
+#: same node path and can move between the same pair of spots.
+ATTR_JOB = "ofp.job"
 ATTR_PROCESS = "ofp.process"
 ATTR_MODE = "ofp.mode"
 ATTR_SPOT_FROM = "ofp.spot.from"
