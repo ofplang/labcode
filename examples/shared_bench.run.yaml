@@ -1,0 +1,25 @@
+# Two jobs, one laboratory: what `lc run --jobs` takes.
+#
+#   lc run --jobs examples/shared_bench.run.yaml --env examples/shared_bench.env.yaml
+#
+# Both jobs run the same workflow file and differ only in their boundary -- which tube,
+# and which slot it lives on. They are planned **together** (schedule SPEC §6.11), so
+# they compete for the one reader and the one arm, and the plan decides who goes first
+# rather than one run waiting for the other to end.
+#
+# Neither states a `release`, so both may start at once. Give the second one
+# `release: 30` to say its tube is not on the rack until then -- entry material is
+# *there*, given, from a job's release, so a release is a statement about the
+# laboratory rather than a priority.
+#
+# 🔴 Two jobs of one workflow render the same node paths and bind the same port names,
+# so what tells their work apart is the job: labcode mints each Object's `_id` per job
+# (see the result boundary below) and records it on every operation (`--trace`).
+jobs:
+  - id: morning
+    workflow: shared_bench.workflow.yaml
+    boundary: shared_bench.morning.boundary.yaml
+
+  - id: afternoon
+    workflow: shared_bench.workflow.yaml
+    boundary: shared_bench.afternoon.boundary.yaml

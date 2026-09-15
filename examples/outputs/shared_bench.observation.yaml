@@ -1,0 +1,141 @@
+schema: ofplang-observation/v0
+time:
+  unit: second
+---
+kind: transport
+job: morning
+from_spot: rack.slot_a
+to_spot: reader.stage
+transporter: arm
+arc:
+  from:
+    node: []
+    port: sample
+  to:
+    node:
+    - Measure
+    port: sample
+start: 0
+end: 1
+moved:
+  view:
+    label: morning
+    _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+---
+kind: processing
+job: morning
+process: measure
+mode: m0
+node:
+- Measure
+devices:
+- reader
+input_spots:
+  sample: reader.stage
+output_spots:
+  measured: reader.stage
+start: 1
+end: 3
+inputs:
+  sample:
+    view:
+      label: morning
+      _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+outputs:
+  measured:
+    view:
+      label: morning
+      _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+  od:
+    view: 0.7
+---
+kind: transport
+job: morning
+from_spot: reader.stage
+to_spot: rack.slot_a
+transporter: arm
+arc:
+  from:
+    node:
+    - Measure
+    port: measured
+  to:
+    node: []
+    port: sample
+start: 3
+end: 5
+moved:
+  view:
+    label: morning
+    _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+---
+kind: transport
+job: afternoon
+from_spot: rack.slot_b
+to_spot: reader.stage
+transporter: arm
+arc:
+  from:
+    node: []
+    port: sample
+  to:
+    node:
+    - Measure
+    port: sample
+start: 5
+end: 7
+moved:
+  view:
+    label: afternoon
+    _id: 9393759b-b778-4196-8be5-392dc38f1f97
+---
+kind: processing
+job: afternoon
+process: measure
+mode: m0
+node:
+- Measure
+devices:
+- reader
+input_spots:
+  sample: reader.stage
+output_spots:
+  measured: reader.stage
+start: 7
+end: 9
+inputs:
+  sample:
+    view:
+      label: afternoon
+      _id: 9393759b-b778-4196-8be5-392dc38f1f97
+outputs:
+  measured:
+    view:
+      label: afternoon
+      _id: 9393759b-b778-4196-8be5-392dc38f1f97
+  od:
+    view: 0.9
+---
+kind: transport
+job: afternoon
+from_spot: reader.stage
+to_spot: rack.slot_b
+transporter: arm
+arc:
+  from:
+    node:
+    - Measure
+    port: measured
+  to:
+    node: []
+    port: sample
+start: 9
+end: 10
+moved:
+  view:
+    label: afternoon
+    _id: 9393759b-b778-4196-8be5-392dc38f1f97
+---
+final: true
+now: 10
+outcome: completed

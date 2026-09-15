@@ -1,0 +1,15 @@
+# The afternoon job's boundary: its tube starts on `slot_b` and goes back there.
+#
+# A boundary belongs to a *job*, not to the run -- which is why a run document names one
+# per job rather than the command line carrying one for all of them. The two jobs here
+# differ in exactly this file: same workflow, same laboratory, different slot and
+# different tube.
+boundary:
+  inputs:
+    sample:
+      spot: rack.slot_b
+      view:
+        label: afternoon
+  outputs:
+    sample: { spot: rack.slot_b }
+    od: {}

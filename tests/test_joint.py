@@ -263,3 +263,47 @@ def test_lc_run_jobs_drives_a_laboratory_of_two(tmp_path):
     status = yaml.safe_load(out.read_text(encoding="utf-8"))
     assert {entry["id"] for entry in status["jobs"]} == {"morning", "afternoon"}
     assert {a.get("job") for a in status["activities"]} == {"morning", "afternoon"}
+
+
+# -- the example itself ---------------------------------------------------------------
+
+
+def test_e2e_the_shared_bench_example_runs_and_gives_each_job_its_own_tube(tmp_path):
+    """The `shared_bench` example, end to end through `lc run --jobs`.
+
+    🔴 What the example is for, asserted: the two jobs run the *same* workflow file, and
+    the result boundary is where that stops being ambiguous -- each job's tube comes back
+    on its own slot, with its own `_id` and its own reading. Two tubes, two identities.
+    """
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    import yaml
+
+    from labcode import run_cli
+
+    boundary_out = tmp_path / "boundary.yaml"
+    code = run_cli.main([
+        "--jobs", str(EXAMPLES / "shared_bench.run.yaml"),
+        "--env", str(EXAMPLES / "shared_bench.env.yaml"),
+        "--seed", "0", "--seconds-per-tick", "0.001",
+        "-o", str(tmp_path / "status.yaml"),
+        "--boundary-out", str(boundary_out),
+    ])
+    assert code == 0
+
+    jobs = yaml.safe_load(boundary_out.read_text(encoding="utf-8"))["jobs"]
+    assert set(jobs) == {"morning", "afternoon"}
+
+    tubes = {}
+    for job_id, document in jobs.items():
+        outputs = document["boundary"]["outputs"]
+        assert outputs["sample"]["spot"] == (
+            "rack.slot_a" if job_id == "morning" else "rack.slot_b"
+        )
+        # The same tube went out as came in: identity is preserved, not re-minted.
+        assert outputs["sample"]["view"]["_id"] == (
+            document["boundary"]["inputs"]["sample"]["view"]["_id"]
+        )
+        tubes[job_id] = outputs["sample"]["view"]["_id"]
+        assert outputs["od"]["view"] > 0
+
+    assert tubes["morning"] != tubes["afternoon"]

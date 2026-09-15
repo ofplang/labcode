@@ -1,0 +1,33 @@
+jobs:
+  morning:
+    boundary:
+      inputs:
+        sample:
+          spot: rack.slot_a
+          view:
+            label: morning
+            _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+      outputs:
+        sample:
+          spot: rack.slot_a
+          view:
+            label: morning
+            _id: d3eb614f-1607-4f72-946c-4e7b4ff459b9
+        od:
+          view: 0.7
+  afternoon:
+    boundary:
+      inputs:
+        sample:
+          spot: rack.slot_b
+          view:
+            label: afternoon
+            _id: 9393759b-b778-4196-8be5-392dc38f1f97
+      outputs:
+        sample:
+          spot: rack.slot_b
+          view:
+            label: afternoon
+            _id: 9393759b-b778-4196-8be5-392dc38f1f97
+        od:
+          view: 0.9

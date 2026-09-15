@@ -1,0 +1,61 @@
+# A one-step workflow, written to be run *twice at once*: a Tube is fetched from the
+# rack, measured on the bench reader, and put back where it came from.
+#
+#   (input) sample ──▶ Measure ──▶ sample  (the same Tube, back on its slot)
+#                          │
+#                          └────▶ od       (Pure Data: what was measured)
+#
+# There is nothing joint about this file, and that is the point. A workflow says what
+# happens to *one* piece of work; running two of them in one laboratory is something the
+# run document says (see shared_bench.run.yaml), not something a workflow is written for.
+# Both jobs run this same file, which is exactly the case where telling them apart
+# matters -- every node path and port name they render is identical.
+#
+# The *how* of each step is in the environment as an `x-labcode.script`
+# (shared_bench.env.yaml); this file is portable ofplang v0.
+spec_version: "0.0"
+
+types:
+  # A 1.5 mL tube. `label` is carried so the scripts have something of the Object to
+  # read; labcode adds the reserved `_id` to every Object type of its own accord.
+  Tube:
+    domain: object
+    view:
+      label: { type: String }
+
+processes:
+
+  # Object-bearing on both ports: the same Tube goes in and comes out (`objects.map`),
+  # measured rather than consumed. `od` is Pure Data -- a number, occupying no spot.
+  measure:
+    kind: atomic
+    inputs:
+      sample: { type: Tube, phase: data }
+    outputs:
+      measured: { type: Tube,  phase: data }
+      od:       { type: Float, phase: data }
+    objects:
+      map:
+        outputs.measured: inputs.sample
+
+  main:
+    kind: composite
+    inputs:
+      sample: { type: Tube, phase: data }
+    outputs:
+      sample: { type: Tube,  phase: data }   # the same Tube, returned
+      od:     { type: Float, phase: data }
+    body:
+      nodes:
+        - id: Measure
+          process: measure
+          state:
+            sample:
+              from: inputs.sample
+      returns:
+        sample:
+          from: Measure.measured
+        od:
+          from: Measure.od
+
+entry: main

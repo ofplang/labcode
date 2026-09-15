@@ -103,6 +103,87 @@ not.
 > transport, or an instrument read in `read` — to drive real hardware; the code may
 > `import` anything the host Python can.
 
+## `shared_bench` — two jobs, one laboratory
+
+`plate_line` runs one workflow. A bench does not: the morning's tubes and the
+afternoon's are the same work on the same machines, and running them one after the other
+leaves the reader idle while somebody fetches the next rack. `lc run --jobs` plans them
+**together** (schedule SPEC §6.11), so the plan decides who gets the bench.
+
+```
+   rack.slot_a ─┐                      ┌─ rack.slot_a      morning
+                ├─ arm ─▶ reader.stage ┤
+   rack.slot_b ─┘                      └─ rack.slot_b      afternoon
+```
+
+A slot per job, and **one reader and one arm** — the contention is the subject. Both jobs
+run the *same* workflow file and differ only in their boundary: which tube, and which
+slot it lives on.
+
+- [`shared_bench.workflow.yaml`](shared_bench.workflow.yaml) — fetch a Tube, measure it,
+  put it back. Nothing about it is joint, which is the point: a workflow says what
+  happens to one piece of work.
+- [`shared_bench.env.yaml`](shared_bench.env.yaml) — the laboratory, with an
+  `x-labcode.script` on the measure mode and on every route.
+- [`shared_bench.run.yaml`](shared_bench.run.yaml) — the **run document**: the two jobs,
+  each naming its workflow and its boundary.
+- [`shared_bench.morning.boundary.yaml`](shared_bench.morning.boundary.yaml) /
+  [`.afternoon.`](shared_bench.afternoon.boundary.yaml) — a boundary belongs to a *job*,
+  which is why the run document names one per job rather than the command line carrying
+  one for all of them.
+
+### Run it
+
+```sh
+lc run --jobs examples/shared_bench.run.yaml --env examples/shared_bench.env.yaml     --seed 0 --seconds-per-tick 0.2 --boundary-out /tmp/shared_bench.boundary.yaml
+```
+
+`--on-job-failure continue` (the default) stops a failing job alone and lets the other
+finish — which is why they were planned together; `stop` stops the whole run.
+
+### Produce the outputs
+
+```sh
+python examples/render_shared_bench.py
+```
+
+- [`outputs/shared_bench.plan.yaml`](outputs/shared_bench.plan.yaml) — the final
+  schedule. Every activity carries the `job` it belongs to, and the roster at the top
+  carries each job's promised completion.
+- [`outputs/shared_bench.svg`](outputs/shared_bench.svg) — the Gantt chart. The reader's
+  lane is where the joint plan shows: the two jobs take turns on it rather than one run
+  waiting for the other to end.
+- [`outputs/shared_bench.observation.yaml`](outputs/shared_bench.observation.yaml) — the
+  observation document, each record naming its job.
+- [`outputs/shared_bench.boundary.yaml`](outputs/shared_bench.boundary.yaml) — the result
+  boundary, **per job**.
+
+🔴 **The result boundary is where to look.** Both jobs render the same node paths and
+bind the same port names, so what tells their work apart is the job:
+
+```yaml
+jobs:
+  morning:
+    boundary:
+      outputs:
+        sample: { spot: rack.slot_a, view: { label: morning,   _id: d3eb614f-… } }
+        od:     { view: 0.7 }
+  afternoon:
+    boundary:
+      outputs:
+        sample: { spot: rack.slot_b, view: { label: afternoon, _id: 9393759b-… } }
+        od:     { view: 0.9 }
+```
+
+Two tubes, two identities. labcode mints each Object's `_id` **per job** for exactly this
+reason — a reproducible generator keyed on the node path alone would hand both tubes one
+identity, silently and the same way on every run — and `--trace` records the job on every
+operation (`ofp.job`) so a record says whose work it was. A run of a single workflow names
+no job and is minted and recorded exactly as it always was.
+
+The times here move between runs like every other labcode execution output (above); the
+result boundary does not, carrying none.
+
 ## `sila2_seal` — the same idea, driven by real SiLA2 servers
 
 Where `plate_line`'s scripts are mocks that only return values, this example's scripts open
