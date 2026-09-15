@@ -59,12 +59,24 @@ python examples/render_plate_line.py
 
 🔴 **These are a record of one run, not a reproducible golden.** The labcode backend
 runs its operations out of process against a **wall clock** (`seconds_per_tick`), so
-which tick a subprocess finishes on varies between runs: re-rendering the same commit
-gives a final `now` of 10 one time and 13 the next. Do not treat a difference here as a
-regression, and do not gate a change on these files being byte-identical — the way the
-scheduler's and the runner's own artifacts can be, both of those being driven by a
-virtual clock. What *is* stable is the plan the scheduler produces from a given input,
-which the tests cover.
+which tick an operation finishes on varies between runs. Do not treat a difference here
+as a regression, and do not gate a change on these files being byte-identical — the way
+the scheduler's and the runner's own artifacts can be, both of those being driven by a
+virtual clock.
+
+Measured on one machine, three runs of the same commit: **the same nine activities
+every time**, and a makespan of 144, 128 and 137. What moves is *when* each activity
+happened and, because a rolling run replans against what it has observed, *the
+arrangement* the plan settles on — one run loads the plate first, the next moves the
+tube first. What does not move is **what ran**, the `_id` each Object carries, and the
+values the scripts produced: `outputs/plate_line.boundary.yaml` came back **byte-identical
+across all three**, being the one artifact here that carries no times at all.
+
+🔴 It is not only the subprocesses. `LabcodeRunner` accepts an injected `monotonic` /
+`sleep`, and a **scriptless** run driven by a fake clock still varied run to run
+(measured) — so "inject a clock" is not the fix, and making labcode's execution output
+deterministic is an open problem rather than an oversight. The plan the *scheduler*
+produces from a given input is reproducible, and the tests are where that is pinned.
 
 - [`outputs/plate_line.plan.yaml`](outputs/plate_line.plan.yaml) — the **final execution
   schedule** (the §6/§7 status document: every activity, `completed`).
@@ -78,15 +90,13 @@ which the tests cover.
   boundary**, echoing the produced `od` and the returned `tube` (as `--boundary-out`
   writes it).
 
-Because the labcode backend runs each op out-of-process on a wall clock, the exact times
-(and makespan) may vary slightly between runs; the sequence and produced values do not.
-
 Every Object's view carries a reserved **`_id`** — labcode's implicit, value-layer Object
 identity (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §4). In the observation you can
 follow the *same* Plate (one `_id`) from `load` through `dispense`/`read` to `store`, and
 the Tube's `_id` round-trips from the input boundary to the output. The ids are
-reproducible (a seeded, provenance-keyed generator), so these outputs are stable to
-re-generate.
+reproducible (a seeded, provenance-keyed generator, keyed **per job** in a `--jobs`
+run), so the ids in these outputs are stable to re-generate even though their times are
+not.
 
 > The scripts here are mocks (they just return values / reference their locals). Replace a
 > script's body with real device calls — e.g. `robot.move(from_spot, to_spot)` in a
