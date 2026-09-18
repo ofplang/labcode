@@ -135,3 +135,35 @@ def test_seeded_generator_is_deterministic_and_provenance_keyed():
 def test_real_generator_ignores_key_and_varies():
     gen = RealUuid4Generator()
     assert gen.new_id("k") != gen.new_id("k")  # fresh each call
+
+
+# -- unit-annotated view fields (v0 §28.9) ------------------------------------
+
+def test_boundary_fills_a_unit_annotated_view_field_with_its_base_default():
+    # A view field may carry a unit where its base type is numeric (v0 §28.9),
+    # and a unit has no runtime representation (§28), so the typed default is
+    # the default of the base type. Before this, `Float[uL]` fell through to
+    # None and the seeded boundary value did not conform.
+    workflow = {
+        "types": {
+            "Vial": {
+                "domain": "object",
+                "view": {
+                    "capacity": {"type": "Float[uL]"},
+                    "slots": {"type": "Int[count_]"},
+                    "label": {"type": "String"},
+                },
+            }
+        },
+        "processes": {
+            "main": {"kind": "composite", "inputs": {"vial": {"type": "Vial"}}, "outputs": {}}
+        },
+        "entry": "main",
+    }
+    boundary = {"boundary": {"inputs": {"vial": {"spot": "bench.1"}}}}
+    out = inject_boundary_ids(boundary, inject_id_field(workflow), SeededUuid4Generator(0))
+    view = out["boundary"]["inputs"]["vial"]["view"]
+    assert view["capacity"] == 0.0
+    assert view["slots"] == 0
+    assert view["label"] == ""
+    assert isinstance(view[RESERVED_ID], str)

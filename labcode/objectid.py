@@ -30,6 +30,7 @@ wall-clock completion order.
 from __future__ import annotations
 
 import copy
+import re
 
 from ofplang.run.simulator import DeviceComputationError
 
@@ -41,6 +42,11 @@ RESERVED_ID = "_id"
 # Typed defaults per v0 primitive, to fill a boundary Object input's non-`_id` view
 # fields the user omitted (a view value must carry exactly its declared fields).
 _PRIMITIVE_DEFAULTS = {"Bool": False, "Int": 0, "Float": 0.0, "String": ""}
+
+# A unit suffix on a numeric primitive (v0 §28.2), which a view field type may
+# carry (§28.9). A unit has no runtime representation, so a default is the
+# default of the base type: `Float[uL]` defaults to 0.0, like `Float`.
+_UNIT_SUFFIX = re.compile(r"(Int|Float)\[[^\[\]]*\]")
 
 
 def object_type_names(workflow: dict) -> set[str]:
@@ -95,6 +101,8 @@ def _default_field(descriptor: object) -> object:
     """A typed default for a view-field descriptor (``{type: <name>}``). A primitive
     yields its default; an Array yields ``[]``; anything else falls back to ``None``."""
     type_name = descriptor.get("type") if isinstance(descriptor, dict) else None
+    if isinstance(type_name, str):
+        type_name = _UNIT_SUFFIX.sub(r"\1", type_name)
     if type_name in _PRIMITIVE_DEFAULTS:
         return _PRIMITIVE_DEFAULTS[type_name]
     if type_name == "Array":
