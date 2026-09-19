@@ -467,7 +467,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
-    { name = "ofplang-run", specifier = ">=0.11,<0.12" },
+    { name = "ofplang-run", specifier = ">=0.11,<0.13" },
     { name = "ofplang-schedule", specifier = ">=0.9,<0.12" },
     { name = "ofplang-validate", specifier = ">=0.2,<0.3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
