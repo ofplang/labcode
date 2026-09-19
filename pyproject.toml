@@ -81,7 +81,7 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.2,<0.3",
-    "ofplang-schedule>=0.9,<0.11",
+    "ofplang-schedule>=0.9,<0.12",
     "ofplang-run>=0.11,<0.12",
 ]
 
