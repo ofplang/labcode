@@ -99,13 +99,17 @@ def _view_schema(workflow: dict, type_name: str) -> dict:
 
 def _default_field(descriptor: object) -> object:
     """A typed default for a view-field descriptor (``{type: <name>}``). A primitive
-    yields its default; an Array yields ``[]``; anything else falls back to ``None``."""
+    yields its default; an Array yields ``[]``; anything else falls back to ``None``.
+
+    An Array view field is written ``Array<T>`` (v0 §2.5, §7.4) -- the bare name
+    ``Array`` is not a v0 type expression -- so the test is on the constructor,
+    which also covers the ``Array< T >`` spelling v0 permits."""
     type_name = descriptor.get("type") if isinstance(descriptor, dict) else None
     if isinstance(type_name, str):
         type_name = _UNIT_SUFFIX.sub(r"\1", type_name)
     if type_name in _PRIMITIVE_DEFAULTS:
         return _PRIMITIVE_DEFAULTS[type_name]
-    if type_name == "Array":
+    if isinstance(type_name, str) and type_name.startswith("Array<"):
         return []
     return None
 

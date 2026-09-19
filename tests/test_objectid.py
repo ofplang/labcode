@@ -167,3 +167,34 @@ def test_boundary_fills_a_unit_annotated_view_field_with_its_base_default():
     assert view["slots"] == 0
     assert view["label"] == ""
     assert isinstance(view[RESERVED_ID], str)
+
+
+def test_boundary_fills_an_array_view_field_with_an_empty_list():
+    # An Array view field is written `Array<T>` (v0 §2.5): the bare name `Array`
+    # is not a v0 type expression, so the old exact-match test never fired and
+    # the field was seeded with None -- which the runner's view conformance
+    # rejects, since an Array value must be a list.
+    workflow = {
+        "types": {
+            "Rack": {
+                "domain": "object",
+                "view": {
+                    "wells": {"type": "Array<Int>"},
+                    "nested": {"type": "Array<Array<Bool>>"},
+                    "spaced": {"type": "Array< String >"},
+                    "volumes": {"type": "Array<Float[uL]>"},
+                },
+            }
+        },
+        "processes": {
+            "main": {"kind": "composite", "inputs": {"rack": {"type": "Rack"}}, "outputs": {}}
+        },
+        "entry": "main",
+    }
+    boundary = {"boundary": {"inputs": {"rack": {"spot": "bench.1"}}}}
+    out = inject_boundary_ids(boundary, inject_id_field(workflow), SeededUuid4Generator(0))
+    view = out["boundary"]["inputs"]["rack"]["view"]
+    assert view["wells"] == []
+    assert view["nested"] == []
+    assert view["spaced"] == []
+    assert view["volumes"] == []
