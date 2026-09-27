@@ -31,9 +31,9 @@ instruments themselves report.
 
 Prerequisites:
 
-  * the lab is up (`docker compose --profile sila2 up -d` in ofplang-mocklab). The thermal cycler may be
-    up or down: this environment does not declare it, so nothing here connects to it -- which
-    is the point of the variant;
+  * the lab is up (`docker compose --profile sila2 up -d` in ofplang-mocklab). The thermal
+    cycler may be up or down: this environment does not declare it, so nothing here connects
+    to it -- which is the point of the variant;
   * `sila2` is installed in *this* interpreter's environment -- labcode runs each script in a
     child process launched with `sys.executable`, so the client library has to be importable
     there (`uv sync --extra sila2`, or `pip install 'labcode[sila2]'`);
