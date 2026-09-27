@@ -6,7 +6,7 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
-## 0.9.0 — unreleased
+## 0.9.0 — 2026-09-28
 
 labcode can now drive a lab over **LADS OPC UA** as well as SiLA2, and gains `lc export`.
 Both are optional extras; nothing changes for an environment that uses neither.
