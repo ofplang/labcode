@@ -7,8 +7,9 @@ forwarded to a sibling package's own CLI, in-process::
     lc validate ...  ->  ofplang.validate.cli.main
     lc schedule ...  ->  ofplang.schedule.cli.main
     lc run ...       ->  labcode.run_cli.main       (labcode dialect backend)
+    lc export ...    ->  ofplang.export.cli.main    (optional: labcode[export])
 
-``validate`` and ``schedule`` still forward to the ofplang siblings unchanged;
+``validate``, ``schedule`` and ``export`` forward to the ofplang siblings unchanged;
 ``run`` is the labcode dialect's own entry (`labcode.run_cli`): it drives the workflow
 on the labcode backend (env ``x-labcode`` device scripts, run out-of-process on a wall
 clock) and adds the dialect front door. The seam -- routing each subcommand
@@ -33,6 +34,17 @@ _SUBCOMMANDS: dict[str, str] = {
     "validate": "ofplang.validate.cli",
     "schedule": "ofplang.schedule.cli",
     "run": "labcode.run_cli",
+    # Writes documents out for people to read -- the single-file viewer. It reads
+    # only what the ofplang specifications define, so it forwards unchanged, like
+    # validate and schedule; it is an extra because nothing else needs it.
+    "export": "ofplang.export.cli",
+}
+
+# Subcommands whose package is an optional extra rather than a dependency, and
+# the install that brings it in -- named when the package is missing, as the
+# other extras (sila2, lads, otel) are.
+_EXTRAS: dict[str, str] = {
+    "export": "pip install 'labcode[export]'",
 }
 
 _USAGE = """\
@@ -45,6 +57,7 @@ commands:
   validate    check a workflow document is well-formed portable v0
   schedule    compute a schedule for a workflow
   run         execute a workflow on the labcode backend (env x-labcode scripts)
+  export      write documents out for people to read (a single-file viewer)
 
 Run `lc <command> --help` for command-specific options.
 
@@ -95,6 +108,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"lc: the '{head}' command requires a package that is not installed "
             f"({exc}).\n"
         )
+        if head in _EXTRAS:
+            sys.stderr.write(f"lc: it is optional; install it with: {_EXTRAS[head]}\n")
         return 2
 
     exit_code: int = module.main(args[1:])

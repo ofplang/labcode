@@ -128,6 +128,11 @@ sila2 = ["sila2>=0.14"]
 # public synchronous client only, so it asks for no upper bound; 2.0 is the line it was
 # written and checked against.
 lads = ["asyncua>=2.0"]
+# `lc export` -- writing documents out for people to read, the single-file viewer -- is
+# optional too: validating, scheduling and running need none of it. ofplang-export reads
+# only what the ofplang specifications define, so `lc export` forwards to it unchanged,
+# as `lc validate` does. Capped at the minor version like the siblings above.
+export = ["ofplang-export>=0.1,<0.2"]
 # Recording a run (`lc run --trace`) is optional, and needs the SDK in whichever interpreter
 # drives the run -- which is also the one running the scripts, since labcode launches each
 # with `sys.executable`. The floors are what the code actually touches: span kinds,

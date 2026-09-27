@@ -11,6 +11,7 @@ ofplang toolchain and exposes it under a single command:
 lc validate ...   # check a workflow is well-formed portable v0
 lc schedule ...   # compute a schedule for a workflow
 lc run ...        # execute a workflow on the labcode backend
+lc export ...     # write documents out for people to read (optional: labcode[export])
 ```
 
 labcode is where a site-specific dialect and a custom runner (real lab hardware)
@@ -60,6 +61,7 @@ interpreter that runs `lc` (labcode runs every script with that same interpreter
 | `sila2` | the `sila2` client library | `flavor: sila2` scripts (§1.7) |
 | `lads` | `asyncua`, an OPC UA client | `flavor: lads` scripts (§1.10) |
 | `otel` | the OpenTelemetry SDK and exporter | `lc run --trace` |
+| `export` | [`ofplang-export`](https://github.com/ofplang/export) | `lc export view` — the workflow and its plan as one self-contained HTML file |
 
 ```sh
 pip install 'labcode[sila2,lads]'
@@ -111,9 +113,11 @@ lc --version
 
 `lc` can also be run as a module: `python -m labcode <command> ...`.
 
-`lc validate` and `lc schedule` are the ofplang siblings' own CLIs unchanged, so their
-options are documented in those repositories. `lc run` is this package's own, and is
-described below.
+`lc validate`, `lc schedule` and `lc export` are the ofplang siblings' own CLIs unchanged,
+so their options are documented in those repositories — `lc export view plan.yaml -o
+plan.html`, for one, writes the workflow and its plan as a single HTML file
+([ofplang/export](https://github.com/ofplang/export); needs `labcode[export]`). `lc run` is
+this package's own, and is described below.
 
 ### `lc run`
 
