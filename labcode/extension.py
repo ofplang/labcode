@@ -25,11 +25,12 @@ EXTENSION_KEY = "x-labcode"
 # -- script -------------------------------------------------------------------
 
 #: A script's ``flavor``: how the ``code`` is meant to be run. ``raw`` (the default) is
-#: the whole function body, written by its author; ``sila2`` is the command body alone,
-#: with the SiLA2 client(s) supplied around it.
+#: the whole function body, written by its author; ``sila2`` and ``lads`` are the command
+#: body alone, with the SiLA2 / LADS OPC UA client(s) supplied around it.
 FLAVOR_RAW = "raw"
 FLAVOR_SILA2 = "sila2"
-FLAVORS: tuple[str, ...] = (FLAVOR_RAW, FLAVOR_SILA2)
+FLAVOR_LADS = "lads"
+FLAVORS: tuple[str, ...] = (FLAVOR_RAW, FLAVOR_SILA2, FLAVOR_LADS)
 
 #: Closed key sets. An unknown key is a typo (or a feature this version does not have),
 #: and silently ignoring it is how a misspelled `flavour:` becomes a mystery at run time.
@@ -44,7 +45,7 @@ SCRIPT_SITE_KEYS: tuple[str, ...] = ("script",)
 NODE_KEYS: tuple[str, ...] = ("connection", "probe")
 #: `x-labcode` at the environment root -- document-wide defaults, and nothing else.
 ROOT_KEYS: tuple[str, ...] = ("probe", "op_timeout")
-CONNECTION_KEYS: tuple[str, ...] = ("kind", "host", "port", "insecure")
+CONNECTION_KEYS: tuple[str, ...] = ("kind", "host", "port", "insecure", "device", "unit")
 PROBE_KEYS: tuple[str, ...] = ("enabled", "timeout", "interval")
 
 
@@ -58,6 +59,19 @@ PROBE_KEYS: tuple[str, ...] = ("enabled", "timeout", "interval")
 CLIENTS_LOCAL = "sila2_clients"
 CLIENT_LOCAL = "sila2_client"
 RESERVED_LOCALS: tuple[str, ...] = (CLIENTS_LOCAL, CLIENT_LOCAL)
+
+#: The same two names for a `lads` script (§1.10), reserved for the same reason.
+LADS_CLIENTS_LOCAL = "lads_clients"
+LADS_CLIENT_LOCAL = "lads_client"
+LADS_RESERVED_LOCALS: tuple[str, ...] = (LADS_CLIENTS_LOCAL, LADS_CLIENT_LOCAL)
+
+#: The flavors that are handed clients, each with the `connection.kind` it opens and the names
+#: it reserves. A script speaks one protocol: a machine whose connection is of another kind is
+#: held without a client, like one with no connection at all (§1.5).
+CONNECTING_FLAVORS: dict[str, tuple[str, tuple[str, ...]]] = {
+    FLAVOR_SILA2: ("sila2", RESERVED_LOCALS),
+    FLAVOR_LADS: ("lads", LADS_RESERVED_LOCALS),
+}
 
 
 def script_flavor(script: Any) -> str:
@@ -104,7 +118,14 @@ def python_code(script: Any) -> str | None:
 
 # -- connection ---------------------------------------------------------------
 
+#: `connection.kind`: the protocol a machine is reached by. ``sila2`` is the default, so an
+#: environment written before LADS support still reads as it always did.
 CONNECTION_KIND = "sila2"
+CONNECTION_KIND_LADS = "lads"
+CONNECTION_KINDS: tuple[str, ...] = (CONNECTION_KIND, CONNECTION_KIND_LADS)
+#: Keys that only a LADS connection has: which device on the server, and which of its
+#: functional units, a client drives. Optional -- a server with one of each needs neither.
+LADS_ONLY_KEYS: tuple[str, ...] = ("device", "unit")
 DEFAULT_INSECURE = False
 MAX_PORT = 65535
 
@@ -128,6 +149,10 @@ class Connection:
     port: int
     insecure: bool = DEFAULT_INSECURE
     kind: str = CONNECTION_KIND
+    #: LADS only: the device (under the server's DeviceSet) and functional unit to drive, by
+    #: browse name. None means "the only one there is", found when the client connects.
+    device: str | None = None
+    unit: str | None = None
 
 
 def parse_connection(raw: Any) -> tuple[Connection | None, list[str]]:
@@ -142,8 +167,18 @@ def parse_connection(raw: Any) -> tuple[Connection | None, list[str]]:
     errors = unknown_key_messages(raw, "connection", CONNECTION_KEYS)
 
     kind = raw.get("kind", CONNECTION_KIND)
-    if kind != CONNECTION_KIND:
-        errors.append(f"connection.kind must be {CONNECTION_KIND!r} (got {kind!r})")
+    if kind not in CONNECTION_KINDS:
+        errors.append(
+            f"connection.kind must be one of {', '.join(repr(k) for k in CONNECTION_KINDS)} "
+            f"(got {kind!r})"
+        )
+    for key in LADS_ONLY_KEYS:
+        if key not in raw:
+            continue
+        if kind != CONNECTION_KIND_LADS:
+            errors.append(f"connection.{key} is only defined for kind {CONNECTION_KIND_LADS!r}")
+        elif not isinstance(raw[key], str) or not raw[key].strip():
+            errors.append(f"connection.{key} must be a non-empty string")
     host = raw.get("host")
     if not isinstance(host, str) or not host.strip():
         errors.append("connection.host must be a non-empty string")
@@ -164,6 +199,8 @@ def parse_connection(raw: Any) -> tuple[Connection | None, list[str]]:
         port=cast(int, port),
         insecure=cast(bool, insecure),
         kind=cast(str, kind),
+        device=cast("str | None", raw.get("device")),
+        unit=cast("str | None", raw.get("unit")),
     )
     return connection, []
 

@@ -305,7 +305,7 @@ def test_connection_port_must_not_be_a_boolean():
     assert any("connection.port" in e for e in result.errors)
 
 
-def test_connection_kind_must_be_sila2():
+def test_connection_kind_must_be_known():
     connection = {**CONNECTION, "kind": "opcua"}
     result = validate_dialect({}, _device_env(_device(**{"x-labcode": {
         "connection": connection}})))
@@ -553,7 +553,7 @@ def test_a_raw_script_cannot_ask_for_clients_it_will_not_be_given():
     # author is expecting something that will not happen.
     result = validate_dialect({}, _endpoints_env(True, flavor="raw"))
     assert not result.ok
-    assert any("only a 'sila2' script is handed clients" in e for e in result.errors)
+    assert any("only a 'sila2' or 'lads' script is handed clients" in e for e in result.errors)
 
 
 def test_endpoints_with_no_addressable_end_is_a_warning():
@@ -782,3 +782,102 @@ def test_a_transporter_less_route_is_named_in_words():
     result = validate_dialect({}, _internal_env())
     assert any("transport (no transporter) cycler.door -> cycler.block" in w
                for w in result.warnings), result.warnings
+
+
+# -- `flavor: lads` and `connection.kind: lads` (§1.5, §1.10) --------------------------
+
+#: A connection to a LADS OPC UA server. `device` / `unit` are optional (G35).
+LADS_CONNECTION = {"kind": "lads", "host": "127.0.0.1", "port": 4842, "insecure": True}
+
+
+def _lads_script(**overrides) -> dict:
+    return _sila2_script(flavor="lads", **overrides)
+
+
+def test_a_lads_connection_passes_with_and_without_device_and_unit():
+    named = {**LADS_CONNECTION, "device": "PlateLoc", "unit": "Sealer"}
+    for connection in (LADS_CONNECTION, named):
+        device = _device(**{"x-labcode": {"connection": connection}})
+        result = validate_dialect({}, _device_env(device))
+        assert result.ok, result.errors
+
+
+def test_device_and_unit_belong_to_a_lads_connection_only():
+    connection = {**CONNECTION, "device": "PlateLoc"}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"connection": connection}})))
+    assert not result.ok
+    assert any("connection.device is only defined for kind 'lads'" in e for e in result.errors)
+
+
+def test_an_empty_lads_unit_is_rejected():
+    connection = {**LADS_CONNECTION, "unit": " "}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"connection": connection}})))
+    assert not result.ok
+    assert any("connection.unit must be a non-empty string" in e for e in result.errors)
+
+
+def test_a_lads_connection_needs_insecure_like_any_other():
+    connection = {k: v for k, v in LADS_CONNECTION.items() if k != "insecure"}
+    result = validate_dialect({}, _device_env(_device(**{"x-labcode": {"connection": connection}})))
+    assert not result.ok
+
+
+def test_a_lads_mode_with_a_lads_device_passes():
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _lads_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": LADS_CONNECTION}})]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+
+
+def test_a_script_speaks_one_protocol():
+    # A lads script whose only device is reached over SiLA2 has nothing to open -- and the
+    # other way round.
+    for flavor, connection in (("lads", CONNECTION), ("sila2", LADS_CONNECTION)):
+        env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _sila2_script(flavor=flavor)})
+        env["devices"] = [_device(**{"x-labcode": {"connection": connection}})]
+        result = validate_dialect({}, env)
+        assert not result.ok
+        assert any("a script speaks one protocol" in e for e in result.errors), result.errors
+
+
+def test_a_lads_script_reserves_its_own_client_names():
+    workflow = {"processes": {"m": {"inputs": {"lads_client": {"type": "Plate"}}}}}
+    env = _env({"id": "v0", "devices": ["reader"], "x-labcode": _lads_script()})
+    env["devices"] = [_device(**{"x-labcode": {"connection": LADS_CONNECTION}})]
+    result = validate_dialect(workflow, env)
+    assert not result.ok
+    assert any("'lads' script's client would overwrite" in e for e in result.errors)
+
+
+def test_a_lads_transport_needs_a_lads_transporter():
+    env = _transport_env(
+        {"transporter": "arm", "from": "a", "to": "b", "x-labcode": _lads_script()}
+    )
+    env["transporters"] = [{"id": "arm", "x-labcode": {"connection": CONNECTION}}]
+    result = validate_dialect({}, env)
+    assert not result.ok
+    expected = "transporter 'arm' declares a connection of another kind"
+    assert any(expected in e for e in result.errors)
+
+
+def test_an_endpoint_of_the_other_protocol_is_a_warning():
+    # A lads route through a SiLA2-connected instrument still works through its transporter;
+    # the end is simply not handed to the script, and that is worth saying.
+    env = _transport_env({
+        "transporter": "arm", "from": "station.slot1", "to": "reader.stage",
+        "x-labcode": _lads_script(endpoints=True),
+    })
+    env["transporters"] = [{"id": "arm", "x-labcode": {"connection": LADS_CONNECTION}}]
+    env["devices"] = [_device("station", spots=["slot1"]),
+                      _device("reader", **{"x-labcode": {"connection": CONNECTION}})]
+    result = validate_dialect({}, env)
+    assert result.ok, result.errors
+    assert any("'reader' declares a connection of another kind than 'lads'" in w
+               for w in result.warnings), result.warnings
+
+
+def test_a_lads_refill_is_refused_like_a_sila2_one():
+    script = {"language": "python", "code": "x", "flavor": "lads"}
+    result = validate_dialect({}, _refill_env(script))
+    assert not result.ok
+    assert any("'lads' is not supported for a refill" in e for e in result.errors)

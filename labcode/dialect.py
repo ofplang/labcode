@@ -41,11 +41,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from labcode.extension import (
+    CONNECTING_FLAVORS,
+    CONNECTION_KIND,
+    CONNECTION_KINDS,
     EXTENSION_KEY,
-    FLAVOR_SILA2,
     FLAVORS,
     NODE_KEYS,
-    RESERVED_LOCALS,
     ROOT_KEYS,
     SCRIPT_KEYS,
     SCRIPT_SITE_KEYS,
@@ -88,6 +89,13 @@ class _NodeIndex:
 
     declared: frozenset[str]
     with_connection: frozenset[str]
+    #: The `connection.kind` each connected id declares; None where it is not a kind this
+    #: version knows (reported where it is declared, and not held against it again here).
+    kinds: dict[str, str | None] = field(default_factory=dict)
+
+    def connected(self, identifier: str, kind: str) -> bool:
+        """Whether `identifier` declares a connection a `kind` script can open."""
+        return identifier in self.with_connection and self.kinds.get(identifier) in (None, kind)
 
 
 def validate_dialect(workflow: dict, environment: dict) -> DialectResult:
@@ -184,6 +192,7 @@ def _validate_root(environment: dict, errors: list) -> dict:
 def _node_index(environment: dict, key: str) -> _NodeIndex:
     declared: set[str] = set()
     with_connection: set[str] = set()
+    kinds: dict[str, str | None] = {}
     entries = environment.get(key)
     if isinstance(entries, list):
         for entry in entries:
@@ -196,7 +205,10 @@ def _node_index(environment: dict, key: str) -> _NodeIndex:
             extension = entry.get(EXTENSION_KEY)
             if isinstance(extension, dict) and extension.get("connection") is not None:
                 with_connection.add(identifier)
-    return _NodeIndex(frozenset(declared), frozenset(with_connection))
+                raw = extension["connection"]
+                kind = raw.get("kind", CONNECTION_KIND) if isinstance(raw, dict) else None
+                kinds[identifier] = kind if kind in CONNECTION_KINDS else None
+    return _NodeIndex(frozenset(declared), frozenset(with_connection), kinds)
 
 
 def _validate_nodes(
@@ -349,9 +361,10 @@ def _validate_processes(
             if not _validate_script(script, label, errors):
                 continue
             modes_with_script.append(mode.get("id"))
-            if script_flavor(script) == FLAVOR_SILA2:
-                _check_mode_connection(mode, label, devices, errors)
-                _check_reserved_locals(wf_procs.get(name), label, errors)
+            flavor = script_flavor(script)
+            if flavor in CONNECTING_FLAVORS:
+                _check_mode_connection(mode, label, devices, errors, flavor)
+                _check_reserved_locals(wf_procs.get(name), label, errors, flavor)
 
         # (1)/(2) exclusivity.
         if wf_has_script and modes_with_script:
@@ -367,8 +380,8 @@ def _validate_processes(
             )
 
 
-def _check_reserved_locals(wf_process: Any, label: str, errors: list) -> None:
-    """A `sila2` script finds its clients under reserved names, and a script's inputs are
+def _check_reserved_locals(wf_process: Any, label: str, errors: list, flavor: str) -> None:
+    """A `sila2` or `lads` script finds its clients under reserved names, and a script's inputs are
     bound as its function's parameters -- so an input port of the same name would be
     silently overwritten by a client. Reject that, as `_id` is rejected (§4.1).
 
@@ -380,25 +393,35 @@ def _check_reserved_locals(wf_process: Any, label: str, errors: list) -> None:
     inputs = wf_process.get("inputs")
     if not isinstance(inputs, dict):
         return
-    for name in RESERVED_LOCALS:
+    reserved = CONNECTING_FLAVORS[flavor][1]
+    for name in reserved:
         if name in inputs:
             errors.append(
                 f"{label}: the process declares an input port {name!r}, which a "
-                f"'sila2' script's client would overwrite; labcode reserves "
-                f"{', '.join(repr(local) for local in RESERVED_LOCALS)} in such a script"
+                f"{flavor!r} script's client would overwrite; labcode reserves "
+                f"{', '.join(repr(local) for local in reserved)} in such a script"
             )
 
 
-def _check_mode_connection(mode: dict, label: str, devices: _NodeIndex, errors: list) -> None:
-    """A `sila2` script is handed a client, so at least one of the mode's devices has to
-    say where that client connects."""
+def _check_mode_connection(
+    mode: dict, label: str, devices: _NodeIndex, errors: list, flavor: str
+) -> None:
+    """A `sila2` / `lads` script is handed a client, so at least one of the mode's devices has
+    to say where that client connects -- by the script's own protocol (§1.5)."""
+    kind = CONNECTING_FLAVORS[flavor][0]
     listed = mode.get("devices")
     identifiers = [d for d in listed if isinstance(d, str)] if isinstance(listed, list) else []
-    prefix = f"{label}: x-labcode.script.flavor 'sila2' but"
+    prefix = f"{label}: x-labcode.script.flavor {flavor!r} but"
     if not identifiers:
         errors.append(f"{prefix} the mode lists no devices to connect to")
         return
+    if any(devices.connected(identifier, kind) for identifier in identifiers):
+        return
     if any(identifier in devices.with_connection for identifier in identifiers):
+        errors.append(
+            f"{prefix} none of its devices {identifiers} declares a {kind!r} "
+            f"x-labcode.connection; a script speaks one protocol"
+        )
         return
     undeclared = sorted(set(identifiers) - devices.declared)
     if undeclared:
@@ -459,9 +482,10 @@ def _validate_replenishments(environment: dict, errors: list, warnings: list) ->
             continue
         if not _validate_script(script, label, errors, SCRIPT_KEYS):
             continue
-        if script_flavor(script) == FLAVOR_SILA2:
+        flavor = script_flavor(script)
+        if flavor in CONNECTING_FLAVORS:
             errors.append(
-                f"{label}: x-labcode.script.flavor 'sila2' is not supported for a refill "
+                f"{label}: x-labcode.script.flavor {flavor!r} is not supported for a refill "
                 f"yet -- which machine's clients it should receive is not settled; "
                 f"use 'python'"
             )
@@ -504,9 +528,10 @@ def _validate_transports(
         if not _validate_script(script, label, errors, TRANSPORT_SCRIPT_KEYS):
             continue
         _check_transport_endpoints(transport, script, label, devices, errors, warnings)
-        if script_flavor(script) == FLAVOR_SILA2:
+        flavor = script_flavor(script)
+        if flavor in CONNECTING_FLAVORS:
             _check_transport_connection(
-                transport, script, label, transporters, devices, errors
+                transport, script, label, transporters, devices, errors, flavor
             )
 
 
@@ -536,15 +561,25 @@ def _check_transport_endpoints(
         return
     if not endpoints:  # an explicit false states the default; nothing more to say
         return
-    if script_flavor(script) != FLAVOR_SILA2:
+    flavor = script_flavor(script)
+    if flavor not in CONNECTING_FLAVORS:
         errors.append(
             f"{prefix} is true, but the script's flavor is "
-            f"{script_flavor(script)!r}: only a 'sila2' script is handed clients (§1.6)"
+            f"{flavor!r}: only a 'sila2' or 'lads' script is handed clients (§1.6)"
         )
         return
+    kind = CONNECTING_FLAVORS[flavor][0]
+    named = _route_ends(transport)
+    # An end connected by the other protocol is held without a client, as an end with no
+    # address is (§1.5); say so, since it is easy to miss in a mixed environment.
+    for device in named:
+        if device in devices.with_connection and not devices.connected(device, kind):
+            warnings.append(
+                f"{prefix} is true, but {device!r} declares a connection of another kind "
+                f"than {kind!r}; a {flavor!r} script will not be given its client"
+            )
     if route_transporter(transport) is None:
         return  # nothing to fall back on; _check_transport_connection reports it as an error
-    named = _route_ends(transport)
     if not any(device in devices.with_connection for device in named):
         warnings.append(
             f"{prefix} is true, but neither end of the route ({', '.join(named)}) declares "
@@ -567,8 +602,10 @@ def _check_transport_connection(
     transporters: _NodeIndex,
     devices: _NodeIndex,
     errors: list,
+    flavor: str,
 ) -> None:
-    """Where a `sila2` transport script's connection has to be.
+    """Where a `sila2` / `lads` transport script's connection has to be -- of the script's own
+    kind (§1.5).
 
     Normally the transporter: it is the machine that carries the move, and the one
     `sila2_client` names.
@@ -581,13 +618,19 @@ def _check_transport_connection(
     that statement away from them for exactly the routes where it matters most. The cost of
     requiring it is one line in the environment; the cost of assuming it is a script handed
     clients its author never asked for."""
-    prefix = f"{label}: x-labcode.script.flavor 'sila2' but"
+    kind = CONNECTING_FLAVORS[flavor][0]
+    prefix = f"{label}: x-labcode.script.flavor {flavor!r} but"
     identifier = route_transporter(transport)
     if identifier is not None:
         if identifier not in transporters.declared:
             errors.append(f"{prefix} transporter {identifier!r} is not declared in transporters[]")
         elif identifier not in transporters.with_connection:
             errors.append(f"{prefix} transporter {identifier!r} declares no x-labcode.connection")
+        elif not transporters.connected(identifier, kind):
+            errors.append(
+                f"{prefix} transporter {identifier!r} declares a connection of another kind "
+                f"than {kind!r}; a script speaks one protocol"
+            )
         return
     if not script_endpoints(script):
         errors.append(
@@ -597,9 +640,9 @@ def _check_transport_connection(
         )
         return
     named = _route_ends(transport)
-    if not any(device in devices.with_connection for device in named):
+    if not any(devices.connected(device, kind) for device in named):
         errors.append(
             f"{prefix} the route names no transporter and neither end "
-            f"({', '.join(named)}) declares an x-labcode.connection; there is no machine "
-            f"left for the script to drive"
+            f"({', '.join(named)}) declares a {kind!r} x-labcode.connection; there is no "
+            f"machine left for the script to drive"
         )
