@@ -17,9 +17,10 @@ so the resolver can look a mode's script up by ``(process, mode id)``. Resolutio
 3. ``None`` -- the op runs as a timed, typed-default no-op (a device not yet scripted);
    `labcode.dialect` warns about those at the front door.
 
-A script whose ``flavor`` is ``sila2`` is *wrapped* before it is handed to the child, so it
-runs with a client open to each of its machines (`labcode.sila2`). The wrapping is pure
-string synthesis here; the child stays a plain script runner that knows nothing about SiLA2.
+A script whose ``flavor`` is ``sila2`` or ``lads`` is *wrapped* before it is handed to the
+child, so it runs with a client open to each of its machines (`labcode.sila2`,
+`labcode.lads`). The wrapping is pure string synthesis here; the child stays a plain script
+runner that knows nothing about either protocol.
 
 The default cadence is coarse (``seconds_per_tick`` ~ tens of seconds): the effective
 poll period is ``poll_interval * seconds_per_tick``, and a real device op wants to be
@@ -48,8 +49,12 @@ from ofplang.run.simulator import (
     default_device_model,
 )
 
+from labcode import lads, sila2
+from labcode.connections import failing_code
 from labcode.extension import (
+    CONNECTING_FLAVORS,
     DEFAULT_OP_TIMEOUT,
+    FLAVOR_LADS,
     FLAVOR_SILA2,
     declared_op_timeout,
     device_connections,
@@ -90,7 +95,6 @@ from labcode.record import (
     NullRecorder,
     Recorder,
 )
-from labcode.sila2 import failing_code, plan_clients, wrap
 
 # Real seconds per environment time tick (default). With poll_interval=1 this makes the
 # effective poll period ~20 s -- coarse enough that a real op's dispatch/running/complete
@@ -102,26 +106,33 @@ DEFAULT_SECONDS_PER_TICK = 20.0
 #: no deadline at all, whatever the document declares.
 FROM_ENVIRONMENT: Literal["environment"] = "environment"
 
+#: The module that opens a connecting flavor's clients (`plan_clients` and `wrap`).
+_FLAVOR_MODULES = {FLAVOR_SILA2: sila2, FLAVOR_LADS: lads}
+
 
 def _flavored(code: str, script, machines, label: str) -> str:
-    """`code` as its flavor asks for it: a `sila2` script wrapped so its clients are open
-    (SPECIFICATIONS.md §1.1), a `raw` one unchanged.
+    """`code` as its flavor asks for it: a `sila2` or `lads` script wrapped so its clients
+    are open (SPECIFICATIONS.md §1.1), a `raw` one unchanged.
 
     `machines` are the machines the operation holds, as ``(id, connections)`` in the order
     their clients are opened (`plan_clients`) -- a mode's devices, or a route's transporter
-    and the devices at either end. With none of them reachable the operation cannot run at
+    and the devices at either end. A machine reached over the other protocol gets no client
+    (one protocol per script). With none of them reachable the operation cannot run at
     all, which is returned as *failing code* rather than raised: a resolver runs inside
     dispatch, where an exception would escape the run instead of failing one operation. The
     dialect front door rejects this case up front, so this is a backstop."""
-    if script_flavor(script) != FLAVOR_SILA2:
+    flavor = script_flavor(script)
+    if flavor not in CONNECTING_FLAVORS:
         return code
-    targets, unavailable = plan_clients(machines)
+    module = _FLAVOR_MODULES[flavor]
+    kind = CONNECTING_FLAVORS[flavor][0]
+    targets, unavailable = module.plan_clients(machines)
     if not targets:
         return failing_code(
-            f"labcode: {label} declares x-labcode.script.flavor 'sila2' but none of its "
-            f"machines declares an x-labcode.connection"
+            f"labcode: {label} declares x-labcode.script.flavor {flavor!r} but none of its "
+            f"machines declares an x-labcode.connection of kind {kind!r}"
         )
-    return wrap(code, targets, unavailable=unavailable)
+    return module.wrap(code, targets, unavailable=unavailable)
 
 
 def make_code_resolver(environment: dict) -> Callable:
@@ -130,7 +141,7 @@ def make_code_resolver(environment: dict) -> Callable:
 
     The returned ``resolver(process, mode, inputs, definition) -> str | None`` maps the
     dispatched ``(process, mode id)`` to its env ``x-labcode.script.code`` (2) -- wrapped
-    with the SiLA2 clients of the mode's devices when the script's flavor asks for that;
+    with the SiLA2 or LADS clients of the mode's devices when the script's flavor asks for that;
     failing that, to the workflow definition's own ``script.code`` (1); failing that,
     ``None`` (a typed-default no-op). Only ``language: python`` scripts are run (the dialect
     validator rejects anything else at the front door, so a non-python script here is
@@ -204,8 +215,8 @@ def make_replenishment_resolver(environment: dict) -> Callable:
     only where it can be reached. None when the route has no script, and the refill then
     runs as a plain timed visit: both machines held, nothing commanded.
 
-    No SiLA2 wrapping. A `sila2` refill script is refused by the dialect front door for
-    now -- which machine's clients it should receive is not settled -- so the code that
+    No client wrapping. A `sila2` or `lads` refill script is refused by the dialect front
+    door for now -- which machine's clients it should receive is not settled -- so the code that
     reaches here is always plain python.
     """
     routes: dict[tuple, str | None] = {}
@@ -228,8 +239,8 @@ def make_transport_resolver(environment: dict) -> Callable:
 
     The returned ``resolver(transporter, from_spot, to_spot) -> str | None`` maps a
     dispatched transport to its env ``transports[]`` route's ``x-labcode.script.code``,
-    matched exactly on ``(transporter, from, to)`` -- wrapped with the SiLA2 clients of the
-    machines it holds (`_transport_machines`) when the script's flavor asks for that; None
+    matched exactly on ``(transporter, from, to)`` -- wrapped with the SiLA2 or LADS clients
+    of the machines it holds (`_transport_machines`) when the script's flavor asks for that; None
     when the route has no script (the transport then runs as a plain timed move --
     bookkeeping only, no device command)."""
     transporters = transporter_connections(environment)

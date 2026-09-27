@@ -13,7 +13,7 @@ It arrives by an **ordinary import** where a script wants the functions themselv
 
 though a script usually reaches them through the unit it was handed (``lads_client.run_program``,
 ``lads_client.stop()`` ...), which calls these. Nothing is injected, for the reason given in
-§1.6.1: a name that appears out of nowhere is worth spending only on what a script cannot obtain
+§1.7.1: a name that appears out of nowhere is worth spending only on what a script cannot obtain
 for itself.
 
 **A timeout is not a cancel.** LADS does offer ``Abort``, but a wait that times out does not call

@@ -322,6 +322,79 @@ def test_a_transporter_less_route_is_named_in_words_when_it_fails():
     assert "transport (no transporter) cycler.door -> cycler.block" in code
 
 
+# -- the lads flavor: the same wrapping, the other protocol ---------------------
+
+LADS_CONNECTION = {"kind": "lads", "host": "127.0.0.1", "port": 4842, "insecure": True}
+
+
+def _lads_mode_env(**connection) -> dict:
+    return {
+        "devices": [
+            {"id": "sealer", "spots": ["stage"],
+             "x-labcode": {"connection": {**LADS_CONNECTION, **connection}}},
+            {"id": "reader", "spots": ["stage"], "x-labcode": {"connection": CONNECTION}},
+        ],
+        "processes": {"seal": {"modes": [{
+            "id": "v0",
+            "devices": ["sealer", "reader"],
+            "x-labcode": {"script": {
+                "language": "python", "flavor": "lads",
+                "code": 'return lads_client.run_program("StartCycle")',
+            }},
+        }]}},
+    }
+
+
+def test_resolver_wraps_a_lads_flavor_script():
+    code = make_code_resolver(_lads_mode_env())("seal", "v0", {}, None)
+    assert code is not None
+    assert code.startswith("from labcode.lads import session as __lc_session\n")
+    assert "('sealer', '127.0.0.1', 4842, True, None, None)" in code
+    assert "as (lads_clients, lads_client):" in code
+    assert 'lads_client.run_program("StartCycle")' in code
+    compile(f"def _f():\n{textwrap.indent(code, '    ')}", "<wrapped>", "exec")
+
+
+def test_a_lads_script_carries_the_declared_device_and_unit():
+    env = _lads_mode_env(device="PlateSealer", unit="Sealer")
+    code = make_code_resolver(env)("seal", "v0", {}, None)
+    assert "('sealer', '127.0.0.1', 4842, True, 'PlateSealer', 'Sealer')" in code
+
+
+def test_a_lads_script_holds_a_sila2_machine_without_a_client():
+    # One protocol per script: the SiLA2 reader is held by the operation but not connected
+    # to, and reaching for it says why rather than failing on a bare KeyError.
+    code = make_code_resolver(_lads_mode_env())("seal", "v0", {}, None)
+    assert "('reader'," not in code
+    assert "'reader': 'other_protocol'" in code
+
+
+def test_resolver_fails_a_lads_script_with_no_lads_machine():
+    env = _lads_mode_env()
+    env["devices"][0]["x-labcode"]["connection"] = CONNECTION  # both are SiLA2 now
+    code = make_code_resolver(env)("seal", "v0", {}, None)
+    assert code is not None
+    assert code.startswith("raise RuntimeError(")
+    assert "flavor 'lads'" in code
+    assert "of kind 'lads'" in code
+    assert "StartCycle" not in code
+
+
+def test_transport_resolver_wraps_a_lads_flavor_script():
+    env = {
+        "transporters": [{"id": "arm", "x-labcode": {"connection": {**LADS_CONNECTION,
+                                                                     "port": 4847}}}],
+        "transports": [{"transporter": "arm", "from": "a", "to": "b", "x-labcode": {"script": {
+            "language": "python", "flavor": "lads",
+            "code": 'lads_client.run_program("Transfer", SourceStation="Base1")',
+        }}}],
+    }
+    code = make_transport_resolver(env)("arm", "a", "b")
+    assert code is not None
+    assert "('arm', '127.0.0.1', 4847, True, None, None)" in code
+    assert "from labcode.lads import session" in code
+
+
 TRANSPORT_ENV = {
     "time": {"unit": "second"},
     "devices": [{"id": "s0", "spots": ["core"]}, {"id": "s1", "spots": ["core"]}],

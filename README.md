@@ -72,10 +72,17 @@ What `lc run` brings of its own, beyond dispatching:
 - **`flavor: sila2`** — a script that speaks SiLA2 gets its clients opened around it
   (§1.7). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
   installed into whichever interpreter runs the scripts.
+- **`flavor: lads`** — the same for LADS OPC UA: a script is handed one LADS functional
+  unit per machine, already connected, with the program runs, state-machine methods and
+  cover movements LADS defines and the waits each needs (§1.10). A connection may name the
+  `device` and `unit` on the server, or leave them to be found. A script speaks one protocol;
+  an operation holding machines of both kinds commands only its own flavor's. The client
+  library is the `lads` extra: `pip install labcode[lads]`.
 - **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
   traces: one trace per run, a span per operation, and — measured inside the process that
   issued them — a span per SiLA2 connection, per command, and per gRPC call each of those
-  made. Off by default; the extra is `pip install labcode[otel]`.
+  made. Off by default; the extra is `pip install labcode[otel]`. A `lads` operation is
+  recorded as its span alone for now.
 
 ## Usage
 
@@ -223,7 +230,8 @@ duration and nothing is commanded. That is a real thing to write (an operator to
 stock up while the schedule waits for them) and an easy one to write by accident, so it is
 warned about.
 
-`flavor: sila2` is **refused on a refill route** for now: a sila2 script is handed clients,
+`flavor: sila2` and `flavor: lads` are **refused on a refill route** for now: such a script
+is handed clients,
 and which machine's clients a refill should receive — the replenisher's, or both ends' as a
 transport may ask for — is not settled. Use `python`.
 

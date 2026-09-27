@@ -82,7 +82,7 @@ def test_wrap_binds_every_client_by_id_in_order(fake_connect):
 
 
 def test_wrap_injects_connections_and_nothing_else(fake_connect):
-    # The helper of §1.6.1 is reached by an import the script writes, not by injection, so
+    # The helper of §1.7.1 is reached by an import the script writes, not by injection, so
     # the wrapper must not bind it -- a script that does not import it does not have it.
     wrapped = sila2.wrap("pass", [("plateloc", PLATELOC)])
     assert "sila2_commands" not in wrapped

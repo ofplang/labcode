@@ -1,4 +1,4 @@
-"""The polling loop an instrument script needs, written once (SPECIFICATIONS.md §1.6.1).
+"""The polling loop an instrument script needs, written once (SPECIFICATIONS.md §1.7.1).
 
 Issuing a command is only half of driving an instrument: a SiLA2 **observable** command
 returns a command *instance* immediately and does the work on the server, so a script that

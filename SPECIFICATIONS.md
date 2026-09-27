@@ -16,7 +16,7 @@ The extension answers two different questions, in two kinds of place. On a **pro
 mode**, a **transport route** and a **replenishment route** it says *what to run* (a
 `script`, §1.1–§1.4); on a **device**, a **transporter** and a **replenisher** it says
 *how to reach the machine* (a `connection`, §1.5), which is what lets a script be the
-commands alone (§1.7). The division is the same each time: the machine has an address,
+commands alone (§1.7 for SiLA2, §1.10 for LADS OPC UA). The division is the same each time: the machine has an address,
 and the thing it does to something else has a procedure. Nowhere else — see §1.8.
 
 An environment process mode (§5) may carry an `x-labcode` mapping holding a `script`: the
@@ -46,17 +46,18 @@ still validates and schedules as plain v0. Only labcode interprets it.
 - `x-labcode.script`, if present, MUST be a mapping with:
   - `language`: MUST be `python`.
   - `code`: MUST be a string (an implementation-provided Python function body).
-  - `flavor` (optional, default `raw`): MUST be `raw` or `sila2` — how `code` is meant to
-    be run (§1.7). `sila2` is the **recommended** way to drive a SiLA2 lab: the code is the
-    commands alone and labcode supplies the clients. `raw` is the whole function body,
-    written by its author — the general escape hatch, and what a script that connects for
-    itself (or speaks something other than SiLA2) uses. On a **replenishment route**
-    `sila2` is an error in this version (§1.4).
+  - `flavor` (optional, default `raw`): MUST be `raw`, `sila2` or `lads` — how `code` is
+    meant to be run. `sila2` (§1.7) is the **recommended** way to drive a SiLA2 lab, and
+    `lads` (§1.10) a LADS OPC UA one: the code is the commands alone and labcode supplies
+    the clients. `raw` is the whole function body, written by its author — the general
+    escape hatch, and what a script that connects for itself (or speaks some other
+    protocol) uses. On a **replenishment route** `sila2` and `lads` are errors in this
+    version (§1.4).
   - `endpoints` (**transport routes only**, optional, default `false`): MUST be a boolean —
     whether this move is also given clients for the devices at either **end** of its route,
     not only its `transporter` (§1.7). A process mode may not declare it: a mode's machines
-    are the ones it lists. A `sila2` script on a route with **no transporter** (§1.3) MUST
-    declare it `true`: the ends are then the only machines there are, and a script is never
+    are the ones it lists. A `sila2` or `lads` script on a route with **no transporter**
+    (§1.3) MUST declare it `true`: the ends are then the only machines there are, and a script is never
     given a machine it did not ask for.
 
 **Unknown keys are an error** — in `x-labcode` at every position, and in the mappings it
@@ -134,7 +135,8 @@ by `(transporter, from, to)`, so a null one matches a null one, and the script's
 `transporter` local is `None`.
 
 Such a move is performed by the **devices at either end of the route** — for a move within
-one device, that device. So a `flavor: sila2` script on such a route must declare
+one device, that device. So a `flavor: sila2` (or `lads`) script on such a route must
+declare
 **`endpoints: true`** (§1.6), and at least one of those devices must declare a
 `connection`; either missing is a front-door error. The `endpoints` request is *required*
 rather than inferred: it is the author's statement of which machines the script drives, and
@@ -178,8 +180,8 @@ A replenishment script is **side-effect only**, as a transport's is: its return 
 ignored and no output is verified. An exception is a graceful failure — the refill ends
 `failed` and the run stops, like any activity failure.
 
-`flavor: sila2` is **an error** on a replenishment route in this version. A `sila2` script
-is handed clients (§1.7), and which machine's clients a refill should receive — the
+`flavor: sila2` is **an error** on a replenishment route in this version, and so is
+`flavor: lads`. Such a script is handed clients (§1.7, §1.10), and which machine's clients a refill should receive — the
 replenisher's, or both ends' as a transport route may ask for — is not settled. Refusing
 says so; running the script without the clients it asked for would not. Use `raw` (the
 default), which may of course connect for itself.
@@ -204,6 +206,17 @@ devices:
     x-labcode:
       connection: { kind: sila2, host: 127.0.0.1, port: 50053, insecure: true }
 
+  - id: thermal_cycler
+    spots: [block]
+    x-labcode:
+      connection:
+        kind: lads
+        host: 127.0.0.1
+        port: 4844
+        insecure: true
+        device: ThermalCycler   # optional: which LADS device on that server...
+        unit: Cycler            # ...and which of its functional units (§1.10)
+
 transporters:
   - id: arm
     x-labcode:
@@ -212,13 +225,22 @@ transporters:
 
 | field | required | default | meaning |
 |---|---|---|---|
-| `kind` | no | `sila2` | the protocol; `sila2` is the only value this version defines |
+| `kind` | no | `sila2` | the protocol: `sila2` or `lads` (LADS OPC UA) |
 | `host` | **yes** | — | a non-empty string |
 | `port` | **yes** | — | an integer in 1..65535 |
-| `insecure` | no | `false` | connect without TLS |
+| `insecure` | no | `false` | connect without TLS (for `lads`: with OPC UA security mode None) |
+| `device` | no | the only one | `lads` only: the browse name of the LADS device on the server |
+| `unit` | no | the only one | `lads` only: the browse name of that device's functional unit |
 
-**TLS is not supported in this version.** There is nowhere in the schema to put the
-credentials it needs (a root certificate, at least), so a `connection` whose effective
+`device` and `unit` are a **LADS** address and nothing else: on a `sila2` connection either
+one is an error, and each MUST be a non-empty string. Omitted, they mean *the only one there
+is* — a server with one device of one unit, which is the common case, needs neither — and
+the omission is resolved when the script connects, not at the front door, since only the
+server knows what it holds (§1.10).
+
+**TLS is not supported in this version** — for `lads`, no OPC UA security mode other than
+None. There is nowhere in the schema to put the credentials either needs (a root
+certificate, a client certificate), so a `connection` whose effective
 `insecure` is false is rejected at the front door — including one that simply omits the
 key and takes the default — and refused again if a script reaches the connect helper
 directly. Every connection must therefore say `insecure: true` today.
@@ -226,12 +248,13 @@ The default stays `false` so that supporting TLS later is a pure addition: new f
 and the error goes away. The check applies to every declared `connection`, whether or not
 a script uses it.
 
-**A `sila2` script needs somewhere to connect** (checked at the front door):
+**A `sila2` or `lads` script needs somewhere to connect** — a `connection` of its own
+`kind` (checked at the front door):
 
 - a mode script with `flavor: sila2` requires **at least one** of that mode's `devices[]`
-  to declare a `connection`;
-- a transport script with `flavor: sila2` requires that route's `transporter` to declare
-  one — or, on a route with **no transporter** (§1.3), requires `endpoints: true` and at
+  to declare a `sila2` `connection`, and one with `flavor: lads` a `lads` one;
+- a transport script requires that route's `transporter` to declare one of the script's
+  kind — or, on a route with **no transporter** (§1.3), requires `endpoints: true` and at
   least one of the devices at its ends to declare one, those being the machines that
   perform such a move.
 
@@ -240,7 +263,8 @@ either **end** of its route (§1.7), but those are *not* required to declare a `
 a route through a plain holding location is ordinary, and the end without an address is
 simply not connected to (a **warning** when *neither* end has one, since then the request
 does nothing — an **error** on a route with no transporter, which has nothing else to
-drive). The transporter is the one that must be reachable, because it is the machine that
+drive). An end whose `connection` is of the **other** kind is not connected to either, and
+is warned about: a script speaks one protocol (§1.10). The transporter is the one that must be reachable, because it is the machine that
 does the moving — and the one `sila2_client` names; where there is none, that is the source
 device, for the same reason. Asking a `raw` script for endpoint
 clients is an **error**: a raw script is handed no clients at all, so the request cannot be
@@ -420,7 +444,7 @@ x-labcode:
   more: waiting for an observable command to finish (the standard `sila2` polling pattern)
   belongs in the code, as it does in a `raw` script.
 
-#### 1.6.1 `labcode.sila2_commands` — the polling loop, written once
+#### 1.7.1 `labcode.sila2_commands` — the polling loop, written once
 
 Waiting for an observable command is the same loop in every script that issues one, so
 labcode ships it. It is an **ordinary module**, reached by an ordinary import — nothing is
@@ -512,6 +536,108 @@ x-labcode:
   lab less consistent, not more.
 - `lc run` overrides it for one run: `--op-timeout SECONDS`, or `--no-op-timeout` for no
   limit at all. The order is flag, then document, then default.
+
+### 1.10 Calling convention (`flavor: lads`)
+
+A `lads` script is the LADS OPC UA counterpart of a `sila2` one (§1.7), and everything §1.7
+says of the flavor holds for it with the names changed: which machines an operation is
+handed and in what order, the `endpoints` request on a transport, connections lasting one
+operation and closed on any exit, a machine held without a client explaining itself when
+indexed (`lads_not_connected`, `lads_endpoints_not_requested`), and the rest of the work
+being the script's own. The two names it sees are:
+
+| name | meaning |
+|---|---|
+| `lads_clients` | a `LadsUnit` for each machine, by **machine id**, in the order of §1.7 |
+| `lads_client` | the first of them — for a transport its `transporter`, or the source device on a route with none |
+
+Both are reserved, as `sila2_clients` / `sila2_client` are, and only in a `lads` script.
+
+```yaml
+x-labcode:
+  script:
+    language: python
+    flavor: lads
+    code: |
+      # `lads_client` is the sealer's functional unit, already connected.
+      lads_client.write_target("SealingTemperature", 170)
+      lads_client.run_program("StartCycle")   # returns once the run has ended
+      return {"cycle_count": int(lads_client.read("CycleCount"))}  # a vendor variable
+```
+
+- **What a script is handed is one functional unit, not a raw client.** A SiLA2 client is
+  typed by its server's features, so a `sila2` script reads well with nothing in between; an
+  OPC UA client is not, and a script driving LADS through it directly would be mostly
+  namespaces, NodeIds and Variants. A `LadsUnit` is a thin, synchronous view of the unit
+  named by the connection's `device` / `unit` (§1.5), built only on what the LADS companion
+  specification (OPC 30500, LADS 1.0.0) defines:
+
+  | call | LADS |
+  |---|---|
+  | `run_program(template_id, **properties)` | `StartProgram`, then wait for the run's result in `ProgramManager/ResultSet`; returns its properties (§1.10.1) |
+  | `start_program(template_id, **properties)` | `StartProgram` alone; returns the run id |
+  | `results()` | the result nodes in `ProgramManager/ResultSet` |
+  | `stop()`, `abort()`, `clear()` | the unit state machine's methods, each waiting until the unit has settled; returns that state |
+  | `reset()` | `abort()` then `clear()`, failing unless the unit ends `Stopped` — the counterpart of a SiLA2 `Reset` |
+  | `state(owner="FunctionalUnitState")` | a state machine's `CurrentState` (`Stopped`, `Running`, …) |
+  | `cover(name, action)` | a cover function's `Open` / `Close`, waiting until it has settled, and failing unless it ends `Opened` / `Closed` |
+  | `write_target(function, value)` | a control function's `TargetValue` |
+  | `read(path)`, `write(path, value)`, `child(path)` | any node below the unit, by browse names joined with `/`, in whichever namespace they live |
+  | `call(owner, method, *variants)` | any LADS method of the object at `owner` |
+  | `raw` | the asyncua client itself, for anything none of this covers |
+
+  A method call or write the server refuses fails the operation (`lads_call_failed`). Where
+  the server adds a `LastError` variable to the unit — not part of LADS; the reference lab's
+  servers do — the failure quotes it, since a StatusCode says *that* the server refused and
+  not *why*.
+- **Which unit is resolved when connecting.** labcode looks for LADS devices under the
+  server's DI `DeviceSet` and for functional units in the chosen device's
+  `FunctionalUnitSet`, recognising each by its type (a subtype counts). A `device` or `unit`
+  that is named but absent fails the operation (`lads_target_not_found`), as does an omitted
+  one where the server has several (`lads_ambiguous_target`, naming them) and a server that
+  is not a LADS server at all (`lads_not_a_lads_server`). The front door cannot check any of
+  this: it needs the server.
+- **One protocol per script.** An operation may hold machines of both kinds — a LADS sealer
+  loaded by a SiLA2 arm — but a script is handed clients of its own flavor only. A held
+  machine whose `connection` is of the other kind is treated as one held without a client,
+  and indexing it says so (`lads_other_protocol`, or `sila2_other_protocol` the other way
+  round). A mode none of whose devices is of the script's kind is an error at the front door
+  (§1.5); an operation that must command both kinds is written `raw`.
+- **The client library is the `lads` extra** (`asyncua`), needed by the interpreter that
+  runs the scripts. labcode imports it only when a `lads` script connects, so it runs
+  without it otherwise; a `lads` script without it fails with `lads_unavailable`.
+- **Probing is unchanged** (§1.6): it opens a TCP connection, whatever the `kind`.
+- **A run's record** (`lc run --trace`) holds a `lads` operation's span, but nothing inside
+  it yet: the connection and the commands are traced for SiLA2 only (§5).
+
+#### 1.10.1 `labcode.lads_commands` — the waits, written once
+
+A LADS method returns once the server has **begun** carrying it out, and the effect follows:
+`StartProgram` returns a run id while the program runs, `Stop` leaves the unit `Stopping`, a
+cover passes through `Opening`. So the waits are the script's, as `settle` is in §1.7.1, and
+labcode ships them in an ordinary module. A script normally reaches them through its unit
+(`lads_client.run_program(...)`, `lads_client.stop()`), which calls them; importing them
+reserves nothing, as with `settle`.
+
+- `run_program(unit, template_id, *, timeout=3600.0, poll=1.0, **properties)` starts the
+  program and waits for the result whose `DeviceProgramRunId` (or, failing that, browse
+  name) is the run id. The **result** is the end of a run, not the unit's state returning to
+  `Stopped`: a server records it once the run is over and its effects are visible. The
+  properties are passed as LADS' `KeyValueType[]`, stringified.
+- **A run that did not complete fails the operation** (`lads_program_failed`). LADS does not
+  say how a result reports failure, so labcode reads an `Outcome` property where the server
+  records one (anything but `Completed` is a failure) and otherwise the unit's state (a unit
+  left `Aborted` failed).
+- `wait_for_state(unit, *, owner="FunctionalUnitState", label, timeout=600.0, poll=0.2)`
+  waits until a state machine has left every transient state (`Stopping`, `Aborting`,
+  `Clearing`, `Starting`, `Opening`, `Closing`) and returns the state it settled in, or fails
+  with `lads_transition_timeout`.
+- **A timeout is not a cancel**, as in §1.7.1 — though here it could be: LADS has `Abort`.
+  A wait that times out (`lads_program_timeout`) still fails only the operation and leaves the
+  instrument as it is, so the same mistake leaves the lab in the same state whichever
+  protocol the instrument speaks. A script that wants the abort calls `abort()` itself.
+- The timeouts are real seconds, the inner limit under `op_timeout` (§1.9), and unrelated to
+  a mode's `duration`, exactly as `settle`'s are.
 
 ## 2. Code source resolution and exclusivity
 
@@ -646,13 +772,20 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 ## 5. Not yet in this version (roadmap)
 
-- **`flavor: sila2` on a replenishment route** — refused today (§1.4). What has to be
-  settled first is which machine's clients a refill script receives: the replenisher's
-  alone, or both ends' as a transport route may ask for with `endpoints`. Until then a
-  refill that must speak SiLA2 uses a `raw` script and connects for itself.
+- **`flavor: sila2` or `lads` on a replenishment route** — refused today (§1.4). What has
+  to be settled first is which machine's clients a refill script receives: the
+  replenisher's alone, or both ends' as a transport route may ask for with `endpoints`.
+  Until then a refill that must speak SiLA2 or LADS uses a `raw` script and connects for
+  itself.
 - **A deeper probe** — asking a machine something (a SiLA2 property read) rather than only
   opening a connection to it, so "answering" can be checked and not just "listening"
   (§1.6). It would be an opt-in depth, since it costs a real exchange per check.
 - **Probing in parallel** — checking machines concurrently, so a lab with many unreachable
   machines does not pay for them one timeout at a time (§1.6).
-- **TLS** — the fields a secure connection needs, lifting the restriction in §1.5.
+- **TLS** — the fields a secure connection needs, lifting the restriction in §1.5; for
+  LADS, an OPC UA security policy and the certificates it takes.
+- **Tracing a `lads` operation** — spans for the connection and each method call inside an
+  operation's span, as a `sila2` one has (§1.10).
+- **Aborting on a timeout, as an opt-in** — LADS can cancel a run where SiLA2 cannot, so a
+  `lads` wait could abort what it gave up on. It is off (§1.10.1) until it can be asked for
+  per call, since the state an abort leaves is not always better than the one a run leaves.
