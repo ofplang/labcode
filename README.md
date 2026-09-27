@@ -53,8 +53,9 @@ sibling packages unchanged; `lc run` is this package's own runner, built on them
 The language is defined in the [ofplang/spec](https://github.com/ofplang/spec)
 repository, and what labcode adds to it in [`docs/SPECIFICATIONS.md`](https://github.com/ofplang/labcode/blob/main/docs/SPECIFICATIONS.md).
 
-Talking to instruments and recording a run are optional, each an extra installed into the
-interpreter that runs `lc` (labcode runs every script with that same interpreter):
+Talking to instruments, recording a run and exporting documents are optional, each an extra
+installed into the interpreter that runs `lc` (labcode runs every script with that same
+interpreter):
 
 | extra | brings | needed for |
 |---|---|---|
@@ -67,8 +68,8 @@ interpreter that runs `lc` (labcode runs every script with that same interpreter
 pip install 'labcode[sila2,lads]'
 ```
 
-Without an extra, labcode still runs; only what needs it — a script of that flavor, or
-`--trace` — fails, with a message naming the extra to install.
+Without an extra, labcode still runs; only what needs it — a script of that flavor,
+`--trace`, or `lc export` — fails, with a message naming the extra to install.
 
 What `lc run` brings of its own, beyond dispatching:
 
