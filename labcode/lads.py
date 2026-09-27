@@ -56,6 +56,9 @@ __all__ = [
 #: How the shared machinery (`labcode.connections`) names this protocol in messages and codes.
 LADS = connections.Protocol(label="LADS", prefix="lads")
 
+#: How often, in seconds, asyncua's supervisor probes a connection it holds (see `connect`).
+WATCHDOG_INTERVAL = 30.0
+
 #: One machine to connect to: ``(id, host, port, insecure, device, unit)``.
 Target = tuple[str, str, int, bool, str | None, str | None]
 
@@ -101,7 +104,15 @@ def connect(
     loop = ThreadLoop()
     loop.daemon = True
     loop.start()
-    client = Client(endpoint_url(host, port), tloop=loop)
+    # asyncua's connection supervisor probes the server every `watchdog_intervall` seconds and,
+    # with the same figure as the probe's timeout, declares the connection lost when an answer
+    # is late -- after which every request fails with "client is disconnected". An answer is
+    # late whenever the client's own loop is busy, and `load_data_type_definitions` below keeps
+    # it busy generating classes for a second or more; on a loaded machine (the runner replans
+    # in the parent while an operation connects) the default 1 s probe then fails a healthy
+    # connection. The probe is not what notices a dead server here -- every wait polls the
+    # server at least once a second, each request with its own timeout -- so it is made rare.
+    client = Client(endpoint_url(host, port), tloop=loop, watchdog_intervall=WATCHDOG_INTERVAL)
     client.close_tloop = True
     try:
         client.connect()
