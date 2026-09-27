@@ -19,7 +19,7 @@ forward to the ofplang siblings unchanged; **`lc run` is the labcode dialect's o
 runner**: it drives the workflow on the labcode backend, running each device
 operation's script — supplied in the environment as an `x-labcode.script` extension
 on a process mode — out-of-process on a wall clock, so a long-running real operation
-never blocks the replan loop. See [`SPECIFICATIONS.md`](SPECIFICATIONS.md) for the
+never blocks the replan loop. See [`docs/SPECIFICATIONS.md`](docs/SPECIFICATIONS.md) for the
 `x-labcode` extension.
 
 ```yaml
@@ -50,7 +50,7 @@ sibling packages unchanged; `lc run` is this package's own runner, built on them
 - [`ofplang-run`](https://github.com/ofplang/run) — the runner / simulator
 
 The language is defined in the [ofplang/spec](https://github.com/ofplang/spec)
-repository, and what labcode adds to it in [`SPECIFICATIONS.md`](SPECIFICATIONS.md).
+repository, and what labcode adds to it in [`docs/SPECIFICATIONS.md`](docs/SPECIFICATIONS.md).
 
 Talking to instruments and recording a run are optional, each an extra installed into the
 interpreter that runs `lc` (labcode runs every script with that same interpreter):

@@ -25,7 +25,7 @@ load ──[move]──> dispense ──[move]──> read ──[move]──> s
   fields, so no `view`). The arm carries it to the dispenser and back. It also names the
   outputs `od` and `tube`, whose produced values are echoed in the result boundary.
 - [`plate_line.env.yaml`](plate_line.env.yaml) is the **labcode environment** — it says
-  *how* each step is carried out, as an `x-labcode.script` (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md)).
+  *how* each step is carried out, as an `x-labcode.script` (see [`../docs/SPECIFICATIONS.md`](../docs/SPECIFICATIONS.md)).
   **Every process mode and every transport route carries a script**: `load` makes the
   Plate, `dispense` dispenses the Tube into the Plate (both Objects are carried through by
   `objects.map`, so its script returns nothing), `read` measures `od` (the Plate is
@@ -91,7 +91,7 @@ produces from a given input is reproducible, and the tests are where that is pin
   writes it).
 
 Every Object's view carries a reserved **`_id`** — labcode's implicit, value-layer Object
-identity (see [`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §4). In the observation you can
+identity (see [`../docs/SPECIFICATIONS.md`](../docs/SPECIFICATIONS.md) §4). In the observation you can
 follow the *same* Plate (one `_id`) from `load` through `dispense`/`read` to `store`, and
 the Tube's `_id` round-trips from the input boundary to the output. The ids are
 reproducible (a seeded, provenance-keyed generator, keyed **per job** in a `--jobs`
@@ -249,14 +249,14 @@ instrument carries on, leaving the lab for the operator to restore.
 The names a script hands a machine still have to be the ones that machine knows — for the arm
 those are its **station** names (`Base1`, `Base4`, …), not labcode's `device.spot`, and one it
 does not know fails with `InvalidStation` at the moment of use. See
-[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.5 and §1.7, and the plate-cycle section below
+[`../docs/SPECIFICATIONS.md`](../docs/SPECIFICATIONS.md) §1.5 and §1.7, and the plate-cycle section below
 for why the two vocabularies do not meet anywhere but in a transport script.
 
 ### If a machine stops answering
 
 Neither environment here asks for it, but labcode can **check that a machine is reachable**
 and schedule around the ones that are not — see
-[`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.6. Adding this to a device (or a
+[`../docs/SPECIFICATIONS.md`](../docs/SPECIFICATIONS.md) §1.6. Adding this to a device (or a
 transporter) that declares a `connection`:
 
 ```yaml
@@ -275,7 +275,7 @@ run without editing the environment.
 
 Probing catches a machine that is not there; it does not catch one that accepted a command
 and never came back. That is what the **operation timeout** is for
-([`../SPECIFICATIONS.md`](../SPECIFICATIONS.md) §1.9): every operation has a real-seconds
+([`../docs/SPECIFICATIONS.md`](../docs/SPECIFICATIONS.md) §1.9): every operation has a real-seconds
 deadline (7200 s by default, declared lab-wide at the environment root as
 `x-labcode.op_timeout`), and one that passes it is stopped and failed with the reason
 `op_timeout` — a run that ends with a status document and a reason instead of one that
