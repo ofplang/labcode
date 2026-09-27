@@ -14,7 +14,7 @@ instruments are asked to do is what those ask of the real hardware.
 The checks assert on the run's outcome, not on the protocol, so `--env lads_plate_cycle.env.yaml`
 checks the same circuit driven through the lab's LADS OPC UA servers (`run_all_lads_examples.py`).
 
-VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
+VERIFIED AGAINST: ofplang-mocklab commit a78ae9f, profile `sila2`. That lab is a *reference*,
 not a requirement: the environment speaks plain SiLA2 and can be pointed at real instruments
 by changing the hosts and ports in it. The version is recorded so a run without hardware has
 something known to reproduce against -- it is deliberately NOT asserted on, because checking a
@@ -38,7 +38,7 @@ Prerequisites:
     it otherwise).
 
     No particular lid or door state is needed. The environment treats an instrument as
-    closed at rest and each transport opens what it must (`endpoints: true`, §1.6), so the
+    closed at rest and each transport opens what it must (`endpoints: true`, §1.7), so the
     circuit starts equally well from the lab's all-open t=0 and from the state a previous run
     leaves behind -- which is what makes a second run evidence that the transports really can
     open an instrument.

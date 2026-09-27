@@ -11,7 +11,8 @@ front door, over the workflow (needed for the (1)/(2) exclusivity rule) and the 
 Three kinds of check:
 
 * **position** -- an ``x-labcode`` outside the places this version reads (the environment
-  root, a process mode, a transport route, a device, a transporter) is an error. Nothing
+  root, a process mode, a transport route, a replenishment route, a device, a transporter, a
+  replenisher) is an error. Nothing
   else would ever read it, and `ofplang-schedule` will not complain either, so a misplaced
   block would otherwise be silent for good. (An ``x-labcode`` in the *workflow* is
   deliberately not checked: that document is portable v0, read by other implementations,
@@ -22,10 +23,12 @@ Three kinds of check:
 * **relational / runnability** --
   - **(1)/(2) exclusive**: a process must not carry both a workflow ``script`` (1) and an
     env ``x-labcode.script`` (2); that is ambiguous.
-  - **a `sila2` script needs somewhere to connect**: its mode must have a device (or its
-    route a transporter) that declares an ``x-labcode.connection``.
-  - **a `sila2` script's client names are reserved**: the process must not declare an input
-    port that one of them would overwrite.
+  - **a `sila2` or `lads` script needs somewhere to connect**: its mode must have a device
+    (or its route a transporter) that declares an ``x-labcode.connection`` of the script's
+    own kind -- a script speaks one protocol.
+  - **a connecting script's client names are reserved** (``sila2_clients`` /
+    ``sila2_client``, ``lads_clients`` / ``lads_client``): the process must not declare an
+    input port that one of them would overwrite.
   - **a probe needs an address**: a machine whose effective ``x-labcode.probe`` is enabled
     must declare an ``x-labcode.connection``. A policy that nothing enables is a *warning*
     (it does nothing, which is unlikely to be what its author meant).
@@ -543,7 +546,7 @@ def _check_transport_endpoints(
     actually receive clients, and that there is a client to receive.
 
     Asking a `raw` script for endpoint clients is an **error**: a raw script is handed no
-    clients at all (§1.6), so the request cannot be honoured and the author expects
+    clients at all (§1.7, §1.10), so the request cannot be honoured and the author expects
     something that will not happen. Asking when neither end has an address is a **warning**
     -- the route still works through its transporter, and an environment written before its
     instruments have addresses is a legitimate intermediate state (as with `probe`).
@@ -565,7 +568,7 @@ def _check_transport_endpoints(
     if flavor not in CONNECTING_FLAVORS:
         errors.append(
             f"{prefix} is true, but the script's flavor is "
-            f"{flavor!r}: only a 'sila2' or 'lads' script is handed clients (§1.6)"
+            f"{flavor!r}: only a 'sila2' or 'lads' script is handed clients (§1.7, §1.10)"
         )
         return
     kind = CONNECTING_FLAVORS[flavor][0]
@@ -613,7 +616,7 @@ def _check_transport_connection(
     A route with **no transporter** (`transporter: null`, ofplang-schedule §4.6/§5.4) is
     performed by the devices at its ends -- a cycler loading its own block -- so those are
     what the script must be able to reach. It receives them only if it asks (`endpoints`,
-    §1.6), and it is made to ask rather than being read as asking: `endpoints` is the
+    §1.7), and it is made to ask rather than being read as asking: `endpoints` is the
     author's statement of which machines the script drives, and inferring it here would take
     that statement away from them for exactly the routes where it matters most. The cost of
     requiring it is one line in the environment; the cost of assuming it is a script handed

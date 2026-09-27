@@ -1,6 +1,6 @@
 """The `sila2` script flavor: opening the connections a command script does not.
 
-A `flavor: sila2` script (SPECIFICATIONS.md §1.1) is the *commands alone* -- it expects a
+A `flavor: sila2` script (SPECIFICATIONS.md §1.7) is the *commands alone* -- it expects a
 client to be there already. This module is the other half: it holds the connections open
 for the duration of one operation, and it generates the few lines that put them in the
 script's scope.
@@ -73,7 +73,7 @@ def connect(host: str, port: int, *, insecure: bool = False) -> Any:
 
     Raises `DeviceComputationError` -- a graceful operation failure -- when the client
     library is missing or the connection would need TLS. The TLS refusal is the same rule
-    the dialect front door applies (§1.4); it is repeated here because this function is
+    the dialect front door applies (§1.5); it is repeated here because this function is
     also reachable without one (a script may call it directly)."""
     if not insecure:
         raise DeviceComputationError(

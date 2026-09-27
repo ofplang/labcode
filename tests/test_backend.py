@@ -258,7 +258,7 @@ def test_a_transport_that_asks_gets_the_devices_at_both_ends():
     code = _transport_code("plateloc.stage", "cycler.block", endpoints=True)
     assert "('plateloc', '127.0.0.1', 50053, True)" in code
     assert "('cycler', '127.0.0.1', 50055, True)" in code
-    # The transporter stays first, so `sila2_client` -- "the first of them" (§1.6) -- is
+    # The transporter stays first, so `sila2_client` -- "the first of them" (§1.7) -- is
     # still the machine that does the moving.
     order = [code.index(f"({name!r},") for name in ("arm", "plateloc", "cycler")]
     assert order == sorted(order)

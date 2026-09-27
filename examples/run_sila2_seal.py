@@ -13,7 +13,7 @@ each script connects for itself. The checks below assert on the run's outcome, w
 share, so the same code checks both. For the same reason it checks `lads_seal.env.yaml`, which
 drives this workflow through the lab's LADS OPC UA servers instead (`run_all_lads_examples.py`).
 
-VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
+VERIFIED AGAINST: ofplang-mocklab commit a78ae9f, profile `sila2`. That lab is a *reference*,
 not a requirement: both environments speak plain SiLA2 and can be pointed at real instruments
 by changing the host and port in them. The version is recorded so a run without hardware has
 something known to reproduce against -- it is deliberately NOT asserted on, because checking

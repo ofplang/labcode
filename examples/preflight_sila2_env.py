@@ -31,6 +31,10 @@ the machine *does* know means the place the workflow means. `Base4` that is the 
 the cycler there does not fail -- it moves a plate somewhere else. Confirm the mapping against
 the bench.
 
+It checks **SiLA2 machines only**. A machine whose connection is `kind: lads` is listed as not
+checked rather than contacted, so an environment that mixes protocols can still be preflighted
+for its SiLA2 half.
+
 Usage:
 
     python examples/preflight_sila2_env.py --env examples/sila2_plate_cycle_no_atc.remote.env.yaml
@@ -49,6 +53,7 @@ from typing import Any
 
 import yaml
 
+from labcode.extension import CONNECTION_KIND
 from labcode.sila2 import connect
 
 #: `sila2_client.SomeFeature` -- the machine the mode or route is *for* (the mode's device, or
@@ -97,20 +102,26 @@ class Machine:
         return f"{self.host}:{self.port}"
 
 
-def collect_machines(environment: dict) -> dict[str, Machine]:
-    """Every device and transporter that declares an `x-labcode.connection`.
+def collect_machines(environment: dict) -> tuple[dict[str, Machine], list[str]]:
+    """Every device and transporter that declares a SiLA2 `x-labcode.connection`, and the ids of
+    those whose connection is of another kind (LADS OPC UA), which this script cannot check.
 
-    A device without one is a shelf rather than an instrument (the station slot in these
-    examples), so it is not a machine to check."""
+    A device without a connection is a shelf rather than an instrument (the station slot in
+    these examples), so it is not a machine to check."""
     machines: dict[str, Machine] = {}
+    other_kind: list[str] = []
     for role, key in (("device", "devices"), ("transporter", "transporters")):
         for entry in environment.get(key) or []:
             if not isinstance(entry, dict):
                 continue
             connection = ((entry.get("x-labcode") or {}).get("connection")) or {}
-            if connection:
-                machines[entry["id"]] = Machine(entry["id"], role, connection)
-    return machines
+            if not connection:
+                continue
+            if connection.get("kind", CONNECTION_KIND) != CONNECTION_KIND:
+                other_kind.append(entry["id"])
+                continue
+            machines[entry["id"]] = Machine(entry["id"], role, connection)
+    return machines, other_kind
 
 
 def script_of(holder: dict) -> str:
@@ -337,9 +348,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"preflight_sila2_env: {path} is not a mapping", file=sys.stderr)
         return 1
 
-    machines = collect_machines(environment)
+    machines, other_kind = collect_machines(environment)
+    if other_kind:
+        # Not a finding: the environment may mix protocols (SPECIFICATIONS.md §1.10). It is said
+        # so that a PASS below is not read as covering machines nothing here looked at.
+        print(f"{path.name}: not checked (not SiLA2): {', '.join(other_kind)}")
     if not machines:
-        print(f"preflight_sila2_env: {path.name} declares no connections to check")
+        print(f"preflight_sila2_env: {path.name} declares no SiLA2 connections to check")
         return 1
 
     issued = (

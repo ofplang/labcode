@@ -169,7 +169,7 @@ def test_a_client_that_will_not_close_does_not_mask_the_result(monkeypatch):
 
 
 def test_connect_refuses_tls():
-    # TLS has nowhere in the schema to keep its credentials (§1.4). The front door rejects
+    # TLS has nowhere in the schema to keep its credentials (§1.5). The front door rejects
     # it too; this is the same rule where a script could reach it directly.
     with pytest.raises(DeviceComputationError) as caught:
         sila2.connect("127.0.0.1", 50053, insecure=False)

@@ -36,7 +36,7 @@ FLAVORS: tuple[str, ...] = (FLAVOR_RAW, FLAVOR_SILA2, FLAVOR_LADS)
 #: and silently ignoring it is how a misspelled `flavour:` becomes a mystery at run time.
 SCRIPT_KEYS: tuple[str, ...] = ("language", "code", "flavor")
 #: A script on a **transport route** may say one thing more: whether it wants to command the
-#: devices at either end of the route, not just the transporter (§1.6). A process mode has no
+#: devices at either end of the route, not just the transporter (§1.7). A process mode has no
 #: use for it -- its machines are the ones it lists -- so it is not allowed there.
 TRANSPORT_SCRIPT_KEYS: tuple[str, ...] = (*SCRIPT_KEYS, "endpoints")
 #: `x-labcode` on a process mode or a transport route -- the places a script lives.

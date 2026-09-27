@@ -187,14 +187,14 @@ def _transport_machines(transport: dict, transporters: dict, devices: dict, scri
     for its whole body (schedule SPECIFICATIONS §4.5). That is what makes a lid openable by
     the move that needs it open -- nothing else can be using the instrument meanwhile.
 
-    Whether the ends are actually connected to is the route's own to say (`endpoints`, §1.6),
+    Whether the ends are actually connected to is the route's own to say (`endpoints`, §1.7),
     and it says no unless asked: a move that only drives its transporter should pay for one
     connection rather than three, and should not stop working because an instrument it merely
     hands a plate to is switched off. A route that does not ask still *holds* both ends, so
     they are reported as held-but-not-requested rather than left unexplained.
 
     The transporter stays first so that `CLIENT_LOCAL` -- the singular alias, which is "the
-    first of them" (§1.6) -- remains the machine that does the moving, whatever else the
+    first of them" (§1.7) -- remains the machine that does the moving, whatever else the
     route touches. Its id is looked up among the transporters and the endpoints' among the
     devices, so the two id spaces cannot shadow each other; a route whose ends are the same
     device is connected to once (`plan_clients`)."""

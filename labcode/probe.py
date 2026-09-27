@@ -8,10 +8,10 @@ answer. This module produces it, by checking the addresses the environment decla
 (`x-labcode.connection`) according to the policies it declares (`x-labcode.probe`).
 
 **What a probe is.** Opening a TCP connection, and nothing more. It needs no client
-library (so labcode probes with or without the `sila2` extra installed) and it is quick
-and bounded. What it establishes is *reachability, not readiness*: a machine whose port is
-open but whose software is wedged reads as up here, and that case surfaces where it
-belongs -- as the operation that tried to command it failing.
+library (so labcode probes with or without the `sila2` or `lads` extra, whatever a
+connection's `kind`) and it is quick and bounded. What it establishes is *reachability, not
+readiness*: a machine whose port is open but whose software is wedged reads as up here, and
+that case surfaces where it belongs -- as the operation that tried to command it failing.
 
 **When it happens.** In the parent process, inline, on the replan that asks for it -- so
 the cost is a run-loop pause bounded by (unreachable machines x their timeout). A slow
