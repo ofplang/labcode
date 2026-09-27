@@ -100,10 +100,15 @@ Repository = "https://github.com/ofplang/labcode"
 # *with* its own `instruments` extra -- meaning `grpcio` -- because what the tests check is
 # that a server-streaming call is passed through untouched, and there is no interceptor to
 # hand a call to without the library it intercepts.
+# asyncua is in `test` and `dev` too: the LADS flavor's tests drive `LadsUnit` with fake nodes
+# but the real `asyncua.ua` types (Variant, QualifiedName, KeyValueType ...), so what they check
+# is how the real library's values are built and read -- and, as with the SDK above, mypy would
+# otherwise see only `Any`.
 test = [
     "pytest>=7.0",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-instrumentation-grpc[instruments]>=0.41b0",
+    "asyncua>=2.0",
 ]
 dev = [
     "pytest>=7.0",
@@ -111,12 +116,18 @@ dev = [
     "mypy>=1.11",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-instrumentation-grpc[instruments]>=0.41b0",
+    "asyncua>=2.0",
 ]
 # Only the SiLA2 integration example needs a SiLA2 client, and it needs it in whatever
 # interpreter runs the scripts: labcode launches each one with `sys.executable`. It is an
 # extra rather than a dependency because labcode itself never speaks SiLA2 -- an environment
 # script does, and only if its author wrote one that does.
 sila2 = ["sila2>=0.14"]
+# The same for LADS OPC UA: only a `flavor: lads` script (or a raw one that connects for
+# itself) needs an OPC UA client, in the interpreter that runs it. labcode uses asyncua's
+# public synchronous client only, so it asks for no upper bound; 2.0 is the line it was
+# written and checked against.
+lads = ["asyncua>=2.0"]
 # Recording a run (`lc run --trace`) is optional, and needs the SDK in whichever interpreter
 # drives the run -- which is also the one running the scripts, since labcode launches each
 # with `sys.executable`. The floors are what the code actually touches: span kinds,
