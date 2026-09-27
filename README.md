@@ -52,6 +52,22 @@ sibling packages unchanged; `lc run` is this package's own runner, built on them
 The language is defined in the [ofplang/spec](https://github.com/ofplang/spec)
 repository, and what labcode adds to it in [`SPECIFICATIONS.md`](SPECIFICATIONS.md).
 
+Talking to instruments and recording a run are optional, each an extra installed into the
+interpreter that runs `lc` (labcode runs every script with that same interpreter):
+
+| extra | brings | needed for |
+|---|---|---|
+| `sila2` | the `sila2` client library | `flavor: sila2` scripts (§1.7) |
+| `lads` | `asyncua`, an OPC UA client | `flavor: lads` scripts (§1.10) |
+| `otel` | the OpenTelemetry SDK and exporter | `lc run --trace` |
+
+```sh
+pip install 'labcode[sila2,lads]'
+```
+
+Without an extra, labcode still runs; only what needs it — a script of that flavor, or
+`--trace` — fails, with a message naming the extra to install.
+
 What `lc run` brings of its own, beyond dispatching:
 
 - **the labcode backend** — each operation's `x-labcode.script` runs out-of-process on a
@@ -70,18 +86,17 @@ What `lc run` brings of its own, beyond dispatching:
 - **object identity** — the reserved `_id` view key is declared on Object types and minted
   per object, so a physical thing can be followed through a run (§4).
 - **`flavor: sila2`** — a script that speaks SiLA2 gets its clients opened around it
-  (§1.7). The client library itself is the `sila2` extra: `pip install labcode[sila2]`,
-  installed into whichever interpreter runs the scripts.
+  (§1.7). The client library is the `sila2` extra.
 - **`flavor: lads`** — the same for LADS OPC UA: a script is handed one LADS functional
   unit per machine, already connected, with the program runs, state-machine methods and
   cover movements LADS defines and the waits each needs (§1.10). A connection may name the
   `device` and `unit` on the server, or leave them to be found. A script speaks one protocol;
   an operation holding machines of both kinds commands only its own flavor's. The client
-  library is the `lads` extra: `pip install labcode[lads]`.
+  library is the `lads` extra.
 - **recording a run** — with `--trace`, what the run did is recorded as OpenTelemetry
   traces: one trace per run, a span per operation, and — measured inside the process that
   issued them — a span per SiLA2 connection, per command, and per gRPC call each of those
-  made. Off by default; the extra is `pip install labcode[otel]`. A `lads` operation is
+  made. Off by default; it needs the `otel` extra. A `lads` operation is
   recorded as its span alone for now.
 
 ## Usage
@@ -231,9 +246,9 @@ stock up while the schedule waits for them) and an easy one to write by accident
 warned about.
 
 `flavor: sila2` and `flavor: lads` are **refused on a refill route** for now: such a script
-is handed clients,
-and which machine's clients a refill should receive — the replenisher's, or both ends' as a
-transport may ask for — is not settled. Use `python`.
+is handed clients, and which machine's clients a refill should receive — the replenisher's,
+or both ends' as a transport may ask for — is not settled. Use `raw` (the default), which may
+connect for itself.
 
 A refill holds the device it fills *and* the replenisher filling it, so it never overlaps
 the work it feeds. It is recorded (`--trace`) as a `replenishment` span naming both
@@ -296,13 +311,22 @@ OpenTelemetry's own export timeout allows: labcode sets no timeout of its own, s
 
 ## Examples
 
-[`examples/`](examples/README.md) holds three worked runs: `plate_line`, an
-Object-bearing line driven entirely by environment scripts and runnable with no
-hardware, and `sila2_seal` and `sila2_plate_cycle`, which drive the reference lab's
-SiLA2 servers for real. `sila2_seal` also walks through what a run does when a
-machine stops answering — before an operation, and in the middle of one. The last two
-also run over LADS OPC UA: `lads_seal.env.yaml` and `lads_plate_cycle.env.yaml` drive the
-same workflows through the reference lab's LADS servers.
+[`examples/`](examples/README.md) holds worked runs of two kinds.
+
+- **Runnable with nothing but Python** — `plate_line`, an Object-bearing line driven entirely
+  by environment scripts, and `shared_bench`, two jobs sharing one laboratory (`--jobs`).
+- **Against real instrument servers** — `sila2_seal` (one instrument), `sila2_plate_cycle` (a
+  circuit through four instruments and an arm) and `sila2_plate_cycle_no_atc` (the same
+  circuit on a bench without a thermal cycler), over SiLA2; and `lads_seal` and
+  `lads_plate_cycle`, the first two workflows unchanged with every machine reached over LADS
+  OPC UA instead. `sila2_seal` also walks through what a run does when a machine stops
+  answering — before an operation, and in the middle of one.
+
+The servers they are verified against are the reference lab,
+[ofplang/mocklab](https://github.com/ofplang/mocklab): mock instruments serving SiLA2 or LADS
+OPC UA by Docker Compose profile, over one simulated world. It is a reference, not a
+requirement — the environments speak plain SiLA2 and LADS, so a bench is a change of hosts and
+ports. `run_all_sila2_examples.py` and `run_all_lads_examples.py` run each set as a check.
 
 ## License
 

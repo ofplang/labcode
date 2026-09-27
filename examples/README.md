@@ -285,13 +285,12 @@ polls forever. A script that knows its own commands should still bound them itse
 
 ### Prerequisites
 
-**Verified against [ofplang-sila2-backend](https://github.com/ofplang/sila2-backend) at commit
-`de3c4fd`** — a virtual lab of mock SiLA2 instrument servers, since renamed
-[ofplang/mocklab](https://github.com/ofplang/mocklab) (checked out as `ofplang-mocklab`); it now also
-serves the same instruments over LADS OPC UA, which these examples do not use. That commit is where its
-transporter became a mock of **Ardea**, a machine that exists, serving the real one's nine
-Feature definitions unchanged; it reached `main` in the `ardea` merge, so a checkout of `main`
-runs these examples. That lab is a *reference, not a
+**Verified against [ofplang/mocklab](https://github.com/ofplang/mocklab) at commit `a78ae9f`**
+(checked out as `ofplang-mocklab`) — a virtual lab of mock instruments whose transporter is a mock
+of **Ardea**, a machine that exists, serving the real one's nine Feature definitions unchanged.
+It serves the same instruments over LADS OPC UA as well, which the `lads_*` examples below use.
+(The lab was called ofplang-sila2-backend until 2026-09-27; its commit `de3c4fd`, where Ardea
+arrived, is the oldest these examples run against.) That lab is a *reference, not a
 requirement*: the scripts speak plain SiLA2, so pointing them at real instruments is a matter
 of changing the host and port in the environment. The version is recorded so a run without
 hardware has something known to reproduce against; it is deliberately not asserted on, since
@@ -643,9 +642,13 @@ python examples/run_all_lads_examples.py
 python examples/run_sila2_seal.py --env examples/lads_seal.env.yaml
 ```
 
-The environments name the lab's default ports (4841–4844, and 4847 for the arm). Like the SiLA2
-examples they are round trips that put the plate back and leave every instrument as they found
-it, so all six can follow one another without intervention.
+The environments name the lab's default ports (4841–4844, and 4847 for the arm); if another
+OPC UA stack holds those, the lab's README says how to publish them elsewhere, and the
+environments' ports have to follow. Like the SiLA2 examples they are round trips that put the
+plate back and leave every instrument as they found it, so all six can follow one another
+without intervention — from one plate on `station.slot1`, restored with the same
+`curl -X POST http://localhost:8001/reseed` if a run failed part way. Verified against the same
+mocklab commit as the SiLA2 examples, on its default timing profile.
 
 ## Taking one of these to a bench
 
