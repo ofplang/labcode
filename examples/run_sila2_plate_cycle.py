@@ -11,6 +11,9 @@ The instrument arguments come from the delivery scripts in `ScriptsForIntegratio
 (snip_xpeel.py, snip_plateloc.py, snip_atc.py, snip_microplate_centrifuge.py), so what the
 instruments are asked to do is what those ask of the real hardware.
 
+The checks assert on the run's outcome, not on the protocol, so `--env lads_plate_cycle.env.yaml`
+checks the same circuit driven through the lab's LADS OPC UA servers (`run_all_lads_examples.py`).
+
 VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
 not a requirement: the environment speaks plain SiLA2 and can be pointed at real instruments
 by changing the hosts and ports in it. The version is recorded so a run without hardware has
@@ -65,9 +68,10 @@ from labcode.runner import run_labcode
 HERE = Path(__file__).parent
 WORKFLOW = HERE / "sila2_plate_cycle.workflow.yaml"
 BOUNDARY = HERE / "sila2_plate_cycle.boundary.yaml"
-# Only one environment for this workflow, and it is the `flavor: sila2` one. The `raw`
+# Only one SiLA2 environment for this workflow, and it is the `flavor: sila2` one. The `raw`
 # alternative is demonstrated by sila2_seal, which exists to be that low-level reference;
-# repeating it here would double the maintenance without showing anything new.
+# repeating it here would double the maintenance without showing anything new. (The LADS one,
+# `lads_plate_cycle.env.yaml`, is passed with `--env`.)
 ENVIRONMENT = HERE / "sila2_plate_cycle.wrapped.env.yaml"
 
 # The four processes the circuit runs, in order. Named here because the checks below assert on

@@ -10,7 +10,8 @@ Either environment for this workflow can be checked (`--env`): the default
 `sila2_seal.wrapped.env.yaml` uses `flavor: sila2`, where each machine's address is declared
 once and labcode opens the clients, and `sila2_seal.env.yaml` is the `raw` reference, where
 each script connects for itself. The checks below assert on the run's outcome, which the two
-share, so the same code checks both.
+share, so the same code checks both. For the same reason it checks `lads_seal.env.yaml`, which
+drives this workflow through the lab's LADS OPC UA servers instead (`run_all_lads_examples.py`).
 
 VERIFIED AGAINST: ofplang-sila2-backend branch ardea (commit de3c4fd). That lab is a *reference*,
 not a requirement: both environments speak plain SiLA2 and can be pointed at real instruments

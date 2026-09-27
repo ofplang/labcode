@@ -584,11 +584,14 @@ def test_sila2_transport_naming_an_undeclared_transporter_says_so():
 
 
 #: (workflow, environment) per shipped example. `sila2_seal` has two environments -- the
-#: `flavor: sila2` one and the `raw` reference -- for the one workflow.
+#: `flavor: sila2` one and the `raw` reference -- for the one workflow. The `lads_*` ones are
+#: SiLA2 examples' workflows reached over LADS OPC UA instead.
 EXAMPLE_DOCUMENTS = (
     ("plate_line.workflow.yaml", "plate_line.env.yaml"),
     ("sila2_seal.workflow.yaml", "sila2_seal.env.yaml"),
     ("sila2_seal.workflow.yaml", "sila2_seal.wrapped.env.yaml"),
+    ("sila2_seal.workflow.yaml", "lads_seal.env.yaml"),
+    ("sila2_plate_cycle.workflow.yaml", "lads_plate_cycle.env.yaml"),
 )
 
 

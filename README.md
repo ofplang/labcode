@@ -300,7 +300,9 @@ OpenTelemetry's own export timeout allows: labcode sets no timeout of its own, s
 Object-bearing line driven entirely by environment scripts and runnable with no
 hardware, and `sila2_seal` and `sila2_plate_cycle`, which drive the reference lab's
 SiLA2 servers for real. `sila2_seal` also walks through what a run does when a
-machine stops answering — before an operation, and in the middle of one.
+machine stops answering — before an operation, and in the middle of one. The last two
+also run over LADS OPC UA: `lads_seal.env.yaml` and `lads_plate_cycle.env.yaml` drive the
+same workflows through the reference lab's LADS servers.
 
 ## License
 

@@ -603,6 +603,50 @@ each opens whatever it needs open, so they follow one another without interventi
 pass/fail summary, and exits non-zero if any failed. Only the examples
 that need the lab are included; `render_plate_line.py` needs nothing but Python.
 
+## `lads_seal` and `lads_plate_cycle` — the same workflows, over LADS OPC UA
+
+Which protocol reaches a machine is a property of the lab, not of the workflow, so there are no
+LADS workflows here: [`lads_seal.env.yaml`](lads_seal.env.yaml) drives
+`sila2_seal.workflow.yaml`, and [`lads_plate_cycle.env.yaml`](lads_plate_cycle.env.yaml) drives
+`sila2_plate_cycle.workflow.yaml`, through the same motions as their SiLA2 environments, with
+every machine reached over LADS OPC UA (`flavor: lads`, SPECIFICATIONS.md §1.10). The workflows,
+the boundaries and the checks are the SiLA2 examples' own, unedited, so a pass says that the same
+workflow reaches the same outcome whichever protocol the lab speaks.
+
+What changes is how each command is said. A `lads` script is handed `lads_client`, one LADS
+functional unit already connected, and a SiLA2 command becomes what LADS offers for it:
+
+```yaml
+code: |
+  lads_client.write_target("SealingTemperature", 150)   # a setter is a TargetValue
+  lads_client.write_target("SealingTime", 3000)          # an OPC UA Duration: milliseconds
+  lads_client.run_program("StartCycle")                  # returns once the run's result is in
+  return {"cycle_count": int(lads_client.read("CycleCount"))}
+```
+
+A lid or a door is `cover("Lid", "Open")`, which returns once the cover has settled, and StopRun
+is `stop()`. Nothing is polled by hand: each call waits for what it starts. The environments'
+headers say what else differs, and the reference lab's `docs/LADS_MAPPING.md` has the full table.
+
+### Run them
+
+```sh
+# in the reference lab (ofplang-mocklab): the LADS servers are the `lads` profile
+# (both profiles may run at once; they share one world)
+docker compose --profile lads up -d
+
+# here: the client library has to be importable by the interpreter that runs the scripts
+uv sync --extra lads
+
+python examples/run_all_lads_examples.py
+# or one of them, through its SiLA2 twin's checks:
+python examples/run_sila2_seal.py --env examples/lads_seal.env.yaml
+```
+
+The environments name the lab's default ports (4841–4844, and 4847 for the arm). Like the SiLA2
+examples they are round trips that put the plate back and leave every instrument as they found
+it, so all six can follow one another without intervention.
+
 ## Taking one of these to a bench
 
 The examples above point at the reference lab because it is what CI and a laptop can run. An
