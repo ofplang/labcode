@@ -13,7 +13,7 @@ regression.
 
 Prerequisites (the same as one example on its own):
 
-  * the lab is up (`docker compose up -d` in ofplang-sila2-backend);
+  * the lab is up (`docker compose --profile sila2 up -d` in ofplang-mocklab);
   * `sila2` is importable by this interpreter (`uv sync --extra sila2`), since labcode runs
     each script in a child launched with `sys.executable`;
   * the world is at t=0 -- one plate on `station.slot1`. Every example here is a round trip

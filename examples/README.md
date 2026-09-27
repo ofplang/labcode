@@ -286,7 +286,9 @@ polls forever. A script that knows its own commands should still bound them itse
 ### Prerequisites
 
 **Verified against [ofplang-sila2-backend](https://github.com/ofplang/sila2-backend) at commit
-`de3c4fd`** — a virtual lab of mock SiLA2 instrument servers. That commit is where its
+`de3c4fd`** — a virtual lab of mock SiLA2 instrument servers, since renamed
+[ofplang/mocklab](https://github.com/ofplang/mocklab) (checked out as `ofplang-mocklab`); it now also
+serves the same instruments over LADS OPC UA, which these examples do not use. That commit is where its
 transporter became a mock of **Ardea**, a machine that exists, serving the real one's nine
 Feature definitions unchanged; it reached `main` in the `ardea` merge, so a checkout of `main`
 runs these examples. That lab is a *reference, not a
@@ -296,8 +298,9 @@ hardware has something known to reproduce against; it is deliberately not assert
 checking a server's name would be the one thing that stopped this working against hardware.
 
 ```sh
-# in the reference lab
-docker compose up -d
+# in the reference lab (ofplang-mocklab): the SiLA2 servers are the `sila2` profile
+# (copying its .env.example to .env makes that the default for a plain `docker compose up -d`)
+docker compose --profile sila2 up -d
 
 # here: the client library has to be importable by the interpreter that runs the scripts
 uv sync --extra sila2

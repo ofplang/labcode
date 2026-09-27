@@ -26,7 +26,7 @@ instruments themselves report.
 
 Prerequisites:
 
-  * the lab is up (`docker compose up -d` in ofplang-sila2-backend);
+  * the lab is up (`docker compose --profile sila2 up -d` in ofplang-mocklab);
   * `sila2` is installed in *this* interpreter's environment -- labcode runs each script in a
     child process launched with `sys.executable`, so the client library has to be importable
     there (`uv sync --extra sila2`, or `pip install 'labcode[sila2]'`);

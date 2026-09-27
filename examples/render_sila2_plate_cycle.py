@@ -9,7 +9,7 @@ The difference from `render_plate_line.py` is the lab: that one's scripts are mo
 nothing but Python, while these open SiLA2 connections and issue real commands. The
 prerequisites are therefore the integration check's:
 
-  * the lab is up (`docker compose up -d` in ofplang-sila2-backend);
+  * the lab is up (`docker compose --profile sila2 up -d` in ofplang-mocklab);
   * `sila2` is importable by this interpreter (`uv sync --extra sila2`), since labcode runs
     each script in a child launched with `sys.executable`;
   * the world is at t=0 -- one plate on `station.slot1`
