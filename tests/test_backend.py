@@ -475,10 +475,13 @@ def _resolve(pending_outputs, inputs):
         backend.close()
 
 
-def test_partial_empty_carries_object_and_defaults_the_rest():
-    # `return {}`: the plate is carried by objects.map (view + `_id`), od defaults (0.0).
-    out = _resolve({}, {"plate": {"barcode": "P001", "_id": "abc"}})
-    assert out == {"plate": {"barcode": "P001", "_id": "abc"}, "od": 0.0}
+def test_a_pure_data_output_left_out_is_an_error():
+    # `return {}`: the plate could be carried by objects.map, but `od` is a measurement
+    # nothing else computes -- it used to default to 0.0, a made-up reading. Now the
+    # operation fails, as a v0 §22.2 script returning too few outputs does (D59).
+    with pytest.raises(DeviceComputationError, match=r"did not return output\(s\) \['od'\]") as exc:
+        _resolve({}, {"plate": {"barcode": "P001", "_id": "abc"}})
+    assert exc.value.code == "script_output_names"
 
 
 def test_partial_merges_script_values_over_defaults():
@@ -575,5 +578,86 @@ def test_the_factory_wires_the_refill_resolver():
     backend = labcode_backend_factory(seconds_per_tick=0.001)(_refill_env("FILL"))
     try:
         assert backend._replenishment_resolver("dispenser", "rack") == "FILL"
+    finally:
+        backend.close()
+
+
+# -- what nothing computes (D59) -------------------------------------------------------
+
+_CREATE_SCHEMA = {
+    "plate": {
+        "kind": "record",
+        "fields": {"barcode": {"kind": "primitive", "name": "String"},
+                   "_id": {"kind": "primitive", "name": "String"}},
+    },
+}
+_CREATE_DEF = {"objects": {"create": ["outputs.plate"]}}
+
+
+def _backend_with(pending):
+    backend = LabcodeBackend(_MINIMAL_ENV, seconds_per_tick=0.001)
+    if pending is not None:
+        backend._pending = pending
+    return backend
+
+
+def test_a_created_object_left_out_gets_a_default_view_and_it_is_said():
+    backend = _backend_with({"outputs": {}})
+    try:
+        out = backend._resolve_model("load", "m0", {}, _CREATE_SCHEMA, _CREATE_DEF,
+                                     node=("Load", 0), job="j1")
+        assert out["plate"]["barcode"] == "" and out["plate"]["_id"]
+        # A second operation of the same port is not reported again.
+        backend._resolve_model("load", "m0", {}, _CREATE_SCHEMA, _CREATE_DEF,
+                               node=("Load", 1), job="j1")
+        assert [(w.code, w.job) for w in backend.warnings] == [("output_view_defaulted", "j1")]
+        message = backend.warnings[0].message
+        assert "'plate'" in message and "['barcode']" in message and "Load/0" in message
+        assert "_id" not in message
+    finally:
+        backend.close()
+
+
+def test_a_created_object_returned_whole_is_not_reported():
+    backend = _backend_with({"outputs": {"plate": {"barcode": "P7"}}})
+    try:
+        out = backend._resolve_model("load", "m0", {}, _CREATE_SCHEMA, _CREATE_DEF)
+        assert out["plate"]["barcode"] == "P7" and out["plate"]["_id"]
+        assert backend.warnings == []
+    finally:
+        backend.close()
+
+
+def test_a_mode_without_a_script_cannot_produce_a_pure_data_output():
+    # The mode chosen has no script (another may have one, so the front door let it
+    # through): `od` has nothing to compute it, and the operation fails (D59 D).
+    backend = _backend_with(None)  # the timed sentinel: no child ran
+    try:
+        with pytest.raises(DeviceComputationError, match="has no script") as exc:
+            backend._resolve_model("read", "m0", {"plate": {"barcode": "P", "_id": "a"}},
+                                   _PLATE_SCHEMA, _MAP_DEF)
+        assert exc.value.code == "script_output_names"
+    finally:
+        backend.close()
+
+
+def test_a_mode_without_a_script_still_carries_an_object():
+    backend = _backend_with(None)
+    try:
+        out = backend._resolve_model("hold", "m0", {"plate": {"barcode": "P", "_id": "a"}},
+                                     {"plate": _PLATE_SCHEMA["plate"]}, _MAP_DEF)
+        assert out == {"plate": {"barcode": "P", "_id": "a"}}
+    finally:
+        backend.close()
+
+
+def test_a_workflow_script_in_another_language_fails():
+    backend = _backend_with(None)
+    try:
+        definition = {**_MAP_DEF, "script": {"language": "julia", "code": "x"}}
+        with pytest.raises(DeviceComputationError) as exc:
+            backend._resolve_model("hold", "m0", {"plate": {"barcode": "P", "_id": "a"}},
+                                   {"plate": _PLATE_SCHEMA["plate"]}, definition)
+        assert exc.value.code == "script_language"
     finally:
         backend.close()

@@ -1,12 +1,11 @@
-"""labcode's out-of-process child harness (the partial-output dialect).
+"""labcode's out-of-process child harness.
 
-Like ``ofplang.run.simulator._child``, but labcode process scripts follow the labcode
-dialect's **partial** output convention (SPECIFICATIONS.md §1.2): a script returns only the
-outputs it computes, and the backend fills the rest -- carrying an Object output through
-``objects.map`` (identity preserved) and defaulting the others. So this child does **no**
-output verification; it just returns the script's raw result mapping. The merge, the
-conformance check, and the rejection of any *extra* (undeclared) output name all happen in
-`labcode.backend.LabcodeBackend`.
+Like ``ofplang.run.simulator._child``, but a labcode process script may leave out an
+Object output (SPECIFICATIONS.md §1.2), which the backend supplies -- carried through
+``objects.map``, or a created Object's default view. So this child does **no** output
+verification; it just returns the script's raw result mapping. The check that every Pure
+Data output is there, the rejection of any *extra* (undeclared) output name, the Object
+fill and the conformance check all happen in `labcode.backend.LabcodeBackend`.
 
 A transport or refill script is side-effect only (its return is ignored). Protocol (JSON on
 stdin, outcome to ``result_path``) is identical to the upstream child; only the process
@@ -61,7 +60,7 @@ def _execute(job: dict, result_path: str) -> int:
                            f"{type(raw).__name__}, not a mapping",
             }}
         else:
-            # A partial mapping is allowed: the backend merges and verifies it (§1.2).
+            # Object outputs may be missing: the backend supplies and verifies (§1.2).
             payload = {"outputs": raw}
     except DeviceComputationError as exc:
         payload = {"error": {"code": exc.code, "message": str(exc)}}

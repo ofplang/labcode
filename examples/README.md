@@ -29,8 +29,8 @@ load ──[move]──> dispense ──[move]──> read ──[move]──> s
   **Every process mode and every transport route carries a script**: `load` makes the
   Plate, `dispense` dispenses the Tube into the Plate (both Objects are carried through by
   `objects.map`, so its script returns nothing), `read` measures `od` (the Plate is
-  carried, so the script returns only what it computes — labcode's *partial outputs*, see
-  the spec), `store` takes it; the transport scripts perform the move and may read the
+  carried, so the script returns only the reading — an Object output need not be
+  returned, see the spec), `store` takes it; the transport scripts perform the move and may read the
   moved Plate's `view` (its barcode).
 
 labcode runs each script **out-of-process** on a wall clock, discovering completion by
@@ -189,7 +189,7 @@ result boundary does not, carrying none.
 Where `plate_line`'s scripts are mocks that only return values, this example's scripts open
 SiLA2 connections and issue real commands. It is the integration check for labcode's SiLA2
 story: labcode schedules, dispatches out-of-process, a script talks SiLA2, an instrument acts,
-and the produced value comes back through labcode's partial outputs.
+and the produced value comes back as the script's return, the plate carried by labcode.
 
 ```
    (in) plate ──[move]──▶ seal ──[move]──▶ (out) plate

@@ -201,10 +201,11 @@ def test_e2e_failing_transport_script_fails_the_run(tmp_path):
     assert "gripper stuck" in (runner.failure.detail or "")
 
 
-def test_e2e_partial_read_carries_the_plate(tmp_path):
-    # The plate_line example, with `read` returning {} (fully partial): the Plate is still
-    # carried through (objects.map) so the line completes, and od takes its typed default.
-    # Exercises the labcode child (raw partial) + _resolve_model merge end to end.
+def test_e2e_a_read_that_returns_no_reading_fails(tmp_path):
+    # The plate_line example, with `read` returning {}: the Plate could still be carried
+    # (objects.map), but `od` is a reading nothing computed. It used to default to 0.0
+    # and the line completed on it; now the read fails (D59). Exercises the labcode child
+    # (which accepts a subset) and `_resolve_model`'s check end to end.
     pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
     from labcode.runner import LabcodeRunner
 
@@ -230,10 +231,10 @@ def test_e2e_partial_read_carries_the_plate(tmp_path):
         random_seed=0, running_task_margin=1,
     )
     status = runner.run()
-    assert not runner.failed
-    assert all(a["status"] == "completed" for a in status["activities"])  # plate reached store
-    assert runner.outputs["od"] == 0.0  # od defaulted (read returned {})
-    assert "tube" in runner.outputs  # the Tube is carried back out
+    assert runner.failed
+    failed = [a for a in status["activities"] if a["status"] == "failed"]
+    assert [a.get("process") for a in failed] == ["read"]
+    assert "od" not in runner.outputs
 
 
 def _unreachable_env(tmp_path) -> str:
@@ -409,22 +410,35 @@ def test_cli_rejects_a_negative_max_ticks(capsys):
     assert "use 0 for no limit" in capsys.readouterr().err
 
 
-def test_cli_warns_on_typed_default(tmp_path, capsys, monkeypatch):
-    # A process with no script warns (typed-default no-op) but still runs. Stub the run so
-    # the test does not spend real wall-clock time.
-    from ofplang.run.app import RunResult
-
+def test_cli_refuses_a_no_op_that_would_have_to_compute_a_value(tmp_path, capsys):
+    # `measure` has no script anywhere but declares `od`: every run of it would fail, so
+    # the front door refuses it before anything runs (D59) -- a usage error, exit 2.
     env = tmp_path / "env.yaml"
     env.write_text(NO_SCRIPT_ENV, encoding="utf-8")
-    monkeypatch.setattr(
-        run_cli, "run_labcode",
-        lambda *a, **k: RunResult(status={"now": 0, "activities": []}, result_boundary={},
-                                  failed=False, failure=None),
-    )
     out = tmp_path / "status.yaml"
     code = run_cli.main([WF, "--env", str(env), "-o", str(out)])
+    assert code == 2
+    assert "only a script can compute" in capsys.readouterr().err
+
+
+def test_cli_prints_the_run_warnings(tmp_path, capsys, monkeypatch):
+    # What the run made up and said so reaches the operator, one line each.
+    from ofplang.run.app import RunResult
+    from ofplang.run.runner.job import RunWarning
+
+    monkeypatch.setattr(
+        run_cli, "run_labcode",
+        lambda *a, **k: RunResult(
+            status={"now": 0, "activities": []}, result_boundary={}, failed=False,
+            failure=None,
+            run_warnings=[RunWarning("entry_input_defaulted", "entry input 'x' ...", "j1")],
+        ),
+    )
+    code = run_cli.main([WF, "--env", ENV, "-o", str(tmp_path / "status.yaml")])
     assert code == 0
-    assert "typed-default no-op" in capsys.readouterr().err
+    assert "lc run: warning [j1]: entry_input_defaulted: entry input 'x'" in (
+        capsys.readouterr().err
+    )
 
 
 def test_cli_unwritable_output_is_a_usage_error(tmp_path, capsys, monkeypatch):

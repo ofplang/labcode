@@ -198,3 +198,112 @@ def test_boundary_fills_an_array_view_field_with_an_empty_list():
     assert view["nested"] == []
     assert view["spaced"] == []
     assert view["volumes"] == []
+
+
+# -- an Array of Objects at the boundary, and what is said about defaults (D59) ----------
+
+ARRAY_WORKFLOW = inject_id_field({
+    "types": {"Plate": {"domain": "object", "view": {"barcode": {"type": "String"}}}},
+    "processes": {
+        "main": {"kind": "composite",
+                 "inputs": {"plates": {"type": "Array<Plate>"}, "plate": {"type": "Plate"}}},
+    },
+    "entry": "main",
+})
+
+
+def _array_boundary(view=None, has_view=True, single=None):
+    plates: dict = {"spot": ["hotel.a", "hotel.b"]}
+    if has_view:
+        plates["view"] = view
+    inputs: dict = {"plates": plates, "plate": {"spot": "shelf.r"}}
+    if single is not None:
+        inputs["plate"]["view"] = single
+    return {"boundary": {"inputs": inputs}}
+
+
+def test_each_element_of_an_array_gets_its_own_id():
+    gen = SeededUuid4Generator(seed=1)
+    views = [{"barcode": "A"}, {"barcode": "B"}]
+    out = inject_boundary_ids(_array_boundary(views), ARRAY_WORKFLOW, gen)
+    minted = out["boundary"]["inputs"]["plates"]["view"]
+    assert [v["barcode"] for v in minted] == ["A", "B"]
+    # Keyed by the element, so each plate is its own Object -- reproducibly.
+    again = SeededUuid4Generator(seed=1)
+    assert minted[0][RESERVED_ID] == again.new_id("boundary:plates[0]")
+    assert minted[1][RESERVED_ID] == again.new_id("boundary:plates[1]")
+    assert minted[0][RESERVED_ID] != minted[1][RESERVED_ID]
+    # A single Object keys as it always has.
+    assert out["boundary"]["inputs"]["plate"]["view"][RESERVED_ID] == again.new_id(
+        "boundary:plate"
+    )
+
+
+def test_an_omitted_array_view_is_one_view_per_spot_and_said():
+    warnings: list = []
+    out = inject_boundary_ids(
+        _array_boundary(has_view=False, single={"barcode": "S"}), ARRAY_WORKFLOW,
+        SeededUuid4Generator(seed=1), warnings=warnings,
+    )
+    views = out["boundary"]["inputs"]["plates"]["view"]
+    assert [v["barcode"] for v in views] == ["", ""]
+    assert [(w.code, "'plates[0]'" in w.message or "'plates[1]'" in w.message)
+            for w in warnings] == [("entry_input_defaulted", True)] * 2
+
+
+def test_a_view_written_in_part_is_completed_and_said_but_not_for_id():
+    warnings: list = []
+    out = inject_boundary_ids(
+        _array_boundary([{"barcode": "A"}, {}], single={"barcode": "S"}), ARRAY_WORKFLOW,
+        SeededUuid4Generator(seed=1), warnings=warnings,
+    )
+    assert out["boundary"]["inputs"]["plates"]["view"][1]["barcode"] == ""
+    # One element left a field out, and that is the one reported -- `_id` never is.
+    assert len(warnings) == 1
+    assert "'plates[1]'" in warnings[0].message and "['barcode']" in warnings[0].message
+    assert RESERVED_ID not in warnings[0].message
+
+
+@pytest.mark.parametrize("bad", ["a string", 3, [{"barcode": "A"}]])
+def test_a_view_that_is_not_a_mapping_is_refused(bad):
+    from ofplang.run.runner.runner import RunnerError
+
+    with pytest.raises(RunnerError, match="'plate'"):
+        inject_boundary_ids(
+            _array_boundary([{}, {}], single=bad), ARRAY_WORKFLOW, SeededUuid4Generator(seed=1)
+        )
+
+
+def test_an_array_view_that_is_not_a_list_of_mappings_is_refused():
+    from ofplang.run.runner.runner import RunnerError
+
+    with pytest.raises(RunnerError, match="list of views"):
+        inject_boundary_ids(
+            _array_boundary({"barcode": "A"}), ARRAY_WORKFLOW, SeededUuid4Generator(seed=1)
+        )
+    with pytest.raises(RunnerError, match=r"'plates\[1\]'"):
+        inject_boundary_ids(
+            _array_boundary([{}, "B"]), ARRAY_WORKFLOW, SeededUuid4Generator(seed=1)
+        )
+
+
+def test_a_mapped_output_whose_input_has_no_id_is_an_error():
+    # Every Object entering an op carries an `_id`, so one that does not is a broken
+    # invariant -- caught rather than leaving the output with no identity (D59 G).
+    definition = {"objects": {"map": {"outputs.plate": "inputs.plate"}}}
+    with pytest.raises(DeviceComputationError, match="has no '_id'") as exc:
+        stamp_object_ids(
+            {"plate": {"barcode": "P"}}, definition, {"plate": {"barcode": "P"}}, ("R",),
+            SeededUuid4Generator(seed=1), PLATE_SCHEMA,
+        )
+    assert exc.value.code == "missing_object_id"
+
+
+def test_an_iteration_index_in_the_node_path_keys_the_created_id():
+    gen = SeededUuid4Generator(seed=1)
+    definition = {"objects": {"create": ["outputs.plate"]}}
+    out = stamp_object_ids(
+        {"plate": {"barcode": "", RESERVED_ID: ""}}, definition, {}, ("Load", 2), gen,
+        PLATE_SCHEMA,
+    )
+    assert out["plate"][RESERVED_ID] == SeededUuid4Generator(seed=1).new_id("node:Load/2:plate")

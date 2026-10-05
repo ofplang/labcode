@@ -454,6 +454,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     for diag in result.scheduler_warnings:
         where = f" ({diag.path})" if getattr(diag, "path", None) else ""
         print(f"lc run: scheduler: {diag.code}{where}: {diag.message}", file=sys.stderr)
+    # What the run itself made up and said so (D59): an entry input or a view field
+    # left out at the boundary, a created Object's view its script did not return.
+    for warning in result.run_warnings:
+        job = f" [{warning.job}]" if warning.job else ""
+        print(f"lc run: warning{job}: {warning.code}: {warning.message}", file=sys.stderr)
 
     write_err = None
     if args.boundary_out:

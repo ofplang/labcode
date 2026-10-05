@@ -62,7 +62,14 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# 🔴 The schedule `<0.13` bound is a bound, not a floor: 0.10 refuses two jobs binding one
+# `ofplang-schedule>=0.13`, `ofplang-run>=0.13` and `ofplang-validate>=0.3` are required
+# together: a `map` / `fold` over an Array of plates runs from these (the scheduler expands
+# it, the runner reads the expansion and takes an Array of Objects at the boundary one
+# element per spot, and specification revision 0.4 is what they validate against), and
+# labcode keys each plate's `_id` by its element. `RunResult.run_warnings`, which `lc run`
+# fills with what labcode defaulted, is new in run 0.13 too.
+#
+# 🔴 The schedule `<0.14` bound is a bound, not a floor: 0.10 refuses two jobs binding one
 # boundary spot where it used to warn, and 0.12 refuses a plan it can show has no
 # schedule before the solve instead of returning `unknown`. Both change what happens to
 # a document this package hands over rather than anything it calls.
@@ -81,9 +88,9 @@ dependencies = [
 # would pick up the next such sibling and start refusing its own examples. The
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
-    "ofplang-validate>=0.2,<0.3",
-    "ofplang-schedule>=0.9,<0.13",
-    "ofplang-run>=0.11,<0.13",
+    "ofplang-validate>=0.3,<0.4",
+    "ofplang-schedule>=0.13,<0.14",
+    "ofplang-run>=0.13,<0.14",
 ]
 
 [project.urls]

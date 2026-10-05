@@ -66,7 +66,7 @@ from labcode.extension import (
     transporter_connections,
 )
 from labcode.idgen import DEFAULT_ID_GENERATOR, IdGenerator
-from labcode.objectid import RESERVED_ID, stamp_object_ids
+from labcode.objectid import RESERVED_ID, object_output_ports, stamp_object_ids
 from labcode.probe import (
     Availability,
     CadenceReporter,
@@ -289,8 +289,8 @@ def _labcode_child_spawn(job: dict, env: Mapping[str, str] | None = None):
 
 
 class LabcodeBackend(SubprocessBackend):
-    """A `SubprocessBackend` for the labcode dialect: partial process outputs + transport
-    execution.
+    """A `SubprocessBackend` for the labcode dialect: Object outputs filled for a script +
+    transport execution.
 
     Two dialect behaviours on top of the base backend:
 
@@ -299,11 +299,12 @@ class LabcodeBackend(SubprocessBackend):
       moved Object's view bound as locals (``from_spot`` / ``to_spot`` / ``transporter`` /
       ``view``). It reuses the upstream machinery -- `_start_child_op` launches it and the
       settle loop completes / fails it (ofplang-run >= 0.1.6) -- so only dispatch is added.
-    * **Partial process outputs** (SPECIFICATIONS.md §1.2). A process script returns only
-      the outputs it computes; `_resolve_model` fills the rest from `default_device_model`
-      (carrying an Object output via ``objects.map``, defaulting the others) and merges the
-      script's values on top. A returned name that is not a declared output is an error.
-      This needs the partial-tolerant `labcode._child` (the default `spawn`), since the
+    * **Object outputs need not be returned** (SPECIFICATIONS.md §1.2). A process script
+      returns every Pure Data output it declares, and may leave out an Object output:
+      `_resolve_model` carries a mapped one (``objects.map``) and gives a created one a
+      default view, reported in `warnings`. A Pure Data output left out, or a returned
+      name that is not a declared output, is an error -- nothing makes a measurement up.
+      This needs the Object-tolerant `labcode._child` (the default `spawn`), since the
       upstream child verifies outputs exactly."""
 
     def __init__(
@@ -343,6 +344,11 @@ class LabcodeBackend(SubprocessBackend):
         # with the run boundary's minting so a run's ids are consistent; default is the
         # reproducible seeded generator.
         self._id_gen = id_generator or DEFAULT_ID_GENERATOR
+        # Values this backend made up and said so (`ofplang.run` `RunWarning`): the view
+        # of a created Object its script did not return. One per (job, process, port),
+        # however many operations of it there were.
+        self.warnings: list = []
+        self._warned: set = set()
 
     # -- recording what the run did (`labcode.record`) -------------------------------
 
@@ -422,45 +428,88 @@ class LabcodeBackend(SubprocessBackend):
 
     def _resolve_model(self, process, mode, inputs, output_schema, definition,
                        node=None, job=None):
-        """The value model `_complete` calls at completion: merge the script's *partial*
-        outputs onto the defaults (§1.2), then stamp Object identities (`_id`).
+        """The value model `_complete` calls at completion: the script's outputs, with any
+        Object output it left out filled (§1.2), then Object identities (`_id`) stamped.
 
-        `default_device_model` supplies the base (``objects.map`` Object carry + typed
-        defaults); the script's returned values override it. A returned name outside
-        `output_schema` is a runtime failure. `stamp_object_ids` then mints ``_id`` for a
-        created Object and carries it for a mapped one (keyed by `node`, the workflow
-        provenance, **and by `job`** -- two jobs of one workflow render the same node
-        path, so the node alone would mint one identity for two plates). A timed op (no
-        child) or a child error is handled as in the base backend.
+        Every Pure Data output must come from the script: one it leaves out -- or a
+        process with no script at all that declares one (§2) -- is a runtime failure
+        (`script_output_names`), since nothing else could compute it and a default would
+        be a made-up measurement. An Object output may be left out: `default_device_model`
+        carries a mapped one, and gives a created one a default view, which is reported
+        (`warnings`). A returned name outside `output_schema` is a runtime failure.
+        `stamp_object_ids` then mints ``_id`` for a created Object and carries it for a
+        mapped one (keyed by `node`, the workflow provenance, **and by `job`** -- two jobs
+        of one workflow render the same node path, so the node alone would mint one
+        identity for two plates). A child error is handled as in the base backend.
 
         🔴 Both halves arrive here rather than at dispatch because this is where an
         identity is *made*: the runner offers provenance to a model that declares it
         (`ofplang-run` >= 0.11), and the simulator carries it on the operation from the
         dispatch that started it."""
         pending = self._pending
+        created, mapped = object_output_ports(definition)
+        object_ports = set(created) | set(mapped)
         if not isinstance(pending, dict):  # the _TIMED sentinel: no child ran
-            outputs = default_device_model(process, mode, inputs, output_schema, definition)
-            return stamp_object_ids(
-                outputs, definition, inputs or {}, node, self._id_gen, output_schema,
-                job=job,
-            )
-        if "error" in pending:
-            err = pending["error"]
-            raise DeviceComputationError(
-                err.get("message", "child failed"), code=err.get("code", "child_error")
-            )
-        raw = pending.get("outputs") or {}
-        extra = set(raw) - set(output_schema or {})
-        if extra:
-            raise DeviceComputationError(
-                f"script process {process!r} returned undeclared output names {sorted(extra)}",
-                code="script_output_names",
-            )
+            # A workflow script in a language no child runs is a failure, as in the base
+            # backend -- not a process without a script.
+            script = (definition or {}).get("script")
+            if script is not None and python_code(script) is None:
+                language = script.get("language") if isinstance(script, dict) else None
+                raise DeviceComputationError(
+                    f"script process {process!r} declares unsupported script language "
+                    f"{language!r}",
+                    code="script_language",
+                )
+            raw: dict = {}
+            what = f"process {process!r} mode {mode!r} has no script, and nothing computes"
+        else:
+            if "error" in pending:
+                err = pending["error"]
+                raise DeviceComputationError(
+                    err.get("message", "child failed"), code=err.get("code", "child_error")
+                )
+            raw = pending.get("outputs") or {}
+            extra = set(raw) - set(output_schema or {})
+            if extra:
+                raise DeviceComputationError(
+                    f"script process {process!r} returned undeclared output names "
+                    f"{sorted(extra)}",
+                    code="script_output_names",
+                )
+            what = f"script process {process!r} did not return"
+        # Every Pure Data output has to be computed: there is no default for one (D59).
+        missing = sorted(set(output_schema or {}) - object_ports - set(raw))
+        if missing:
+            raise DeviceComputationError(f"{what} output(s) {missing}", code="script_output_names")
         base = default_device_model(process, mode, inputs, output_schema, definition)
+        # A created Object the script did not return starts with a default view: say so.
+        for port in created:
+            if port not in raw:
+                self._warn_defaulted_view(process, port, node, job, output_schema)
         return stamp_object_ids(
             {**base, **raw}, definition, inputs or {}, node, self._id_gen, output_schema,
             job=job,
         )
+
+    def _warn_defaulted_view(self, process, port, node, job, output_schema) -> None:
+        """Report a created Object whose view runs on its type's defaults, once per job,
+        process and port. ``_id`` is not a default -- it is minted -- so a type with no
+        other view field gives nothing to report."""
+        from ofplang.run.runner.job import RunWarning
+
+        fields = (output_schema or {}).get(port, {}).get("fields") or {}
+        defaulted = [field for field in fields if field != RESERVED_ID]
+        key = (job or "", process, port)
+        if not defaulted or key in self._warned:
+            return
+        self._warned.add(key)
+        where = "/".join(str(step) for step in node) if node else "?"
+        self.warnings.append(RunWarning(
+            "output_view_defaulted",
+            f"process {process!r} did not return its created Object {port!r} (first at "
+            f"{where}), so view field(s) {defaulted} run on their type's default",
+            job or "",
+        ))
 
     def advance(self, until: int) -> int:
         """Pace the wall clock as the base backend does, and say so once if this run

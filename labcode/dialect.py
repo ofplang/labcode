@@ -70,7 +70,7 @@ from labcode.extension import (
     transport_label,
     unknown_key_messages,
 )
-from labcode.objectid import RESERVED_ID, reserved_collisions
+from labcode.objectid import RESERVED_ID, object_output_ports, reserved_collisions
 
 
 @dataclass
@@ -375,12 +375,24 @@ def _validate_processes(
                 f"process {name!r} has both a workflow script (1) and an env "
                 f"x-labcode.script (2); they are mutually exclusive"
             )
-        # typed-default reachability -- a warning, not an error.
+        # A process with no script anywhere runs as a no-op. That is allowed -- a device not
+        # scripted yet, while the rest is mocked -- and warned about. But a no-op computes
+        # nothing, so a Pure Data output it declares could only be made up: such a process
+        # is certain to fail every time it runs, and is refused here, before it does (D59).
         if not wf_has_script and not modes_with_script:
-            warnings.append(
-                f"process {name!r} has no script (workflow or x-labcode); its operations "
-                f"will run as a typed-default no-op"
-            )
+            created, mapped = object_output_ports(wf_procs.get(name))
+            declared = (wf_procs.get(name) or {}).get("outputs") or {}
+            computed = sorted(set(declared) - set(created) - set(mapped))
+            if computed:
+                errors.append(
+                    f"process {name!r} has no script (workflow or x-labcode) but declares "
+                    f"output(s) {computed}, which only a script can compute"
+                )
+            else:
+                warnings.append(
+                    f"process {name!r} has no script (workflow or x-labcode); its operations "
+                    f"will run as a no-op"
+                )
 
 
 def _check_reserved_locals(wf_process: Any, label: str, errors: list, flavor: str) -> None:

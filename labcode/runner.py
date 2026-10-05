@@ -130,10 +130,14 @@ class LabcodeRunner(RollingRunner):
         self.trace_id: str | None = None
         # The same three steps per job, or once for a lone workflow: refuse a type that
         # declares the reserved field, rewrite the Object types to carry `_id`, and mint
-        # the boundary's ids -- keyed by the job where the run names one.
+        # the boundary's ids -- keyed by the job where the run names one. A view field
+        # the boundary left out is defaulted there, and reported (`warnings`).
+        self._boundary_warnings: list = []
         if roster is None:
             rewritten = self._prepare(workflow)
-            boundary = inject_boundary_ids(boundary, rewritten, self.id_generator)
+            boundary = inject_boundary_ids(
+                boundary, rewritten, self.id_generator, warnings=self._boundary_warnings
+            )
             target: object = rewritten
         else:
             prepared = []
@@ -144,7 +148,8 @@ class LabcodeRunner(RollingRunner):
                         request,
                         workflow=job_doc,
                         boundary=inject_boundary_ids(
-                            request.boundary, job_doc, self.id_generator, job=request.id
+                            request.boundary, job_doc, self.id_generator, job=request.id,
+                            warnings=self._boundary_warnings,
                         ),
                     )
                 )
@@ -178,6 +183,17 @@ class LabcodeRunner(RollingRunner):
             running_task_margin=running_task_margin,
             **rolling_kwargs,
         )
+
+    @property
+    def warnings(self) -> list:
+        """What the run said without failing: the runner's own (an entry input run on
+        its default, an output it cannot report), the boundary view fields labcode
+        defaulted, and the created Object views the backend defaulted (D59)."""
+        return [
+            *super().warnings,
+            *self._boundary_warnings,
+            *getattr(self.sim, "warnings", []),
+        ]
 
     def _prepare(self, workflow) -> dict:
         """One workflow, loaded and made a labcode workflow: the reserved-field check
@@ -305,4 +321,5 @@ def run_labcode(
         # this to empty, so leaving it out would silently drop them on this route only
         # (ofplang-run >= 0.2.0 collects them).
         scheduler_warnings=runner.scheduler_warnings,
+        run_warnings=runner.warnings,
     )

@@ -114,22 +114,35 @@ def _default_field(descriptor: object) -> object:
     return None
 
 
-def entry_object_inputs(workflow: dict) -> dict[str, str]:
-    """Map each Object-bearing entry (whole-workflow) input port -> its type name.
+def _object_element(type_expr: object, objects: set[str]) -> tuple[str, int] | None:
+    """`(object type name, Array depth)` when `type_expr` is an Object type or an Array
+    of one (nested to any depth) -- `("Plate", 0)` for `Plate`, `("Plate", 1)` for
+    `Array<Plate>` -- else None."""
+    if not isinstance(type_expr, str):
+        return None
+    expr, depth = type_expr.strip(), 0
+    while expr.startswith("Array<") and expr.endswith(">"):
+        expr, depth = expr[len("Array<"):-1].strip(), depth + 1
+    return (expr, depth) if expr in objects else None
 
-    The entry composite's inputs whose declared type is a ``domain: object`` type are
-    the run-boundary Objects; a boundary must place each on a spot and (with this
-    feature) supply its ``_id``."""
+
+def entry_object_inputs(workflow: dict) -> dict[str, tuple[str, int]]:
+    """Map each Object-bearing entry (whole-workflow) input port -> `(type name, depth)`.
+
+    The entry composite's inputs whose declared type is a ``domain: object`` type, or an
+    Array of one, are the run-boundary Objects; a boundary must place each on a spot (an
+    Array: one spot per element) and, with this feature, each gets an ``_id``. `depth`
+    is how deeply the port nests Arrays, 0 for a single Object."""
     entry = workflow.get("entry")
     processes = workflow.get("processes") or {}
     proc = processes.get(entry) or {}
     inputs = proc.get("inputs") or {}
     objects = object_type_names(workflow)
-    result: dict[str, str] = {}
+    result: dict[str, tuple[str, int]] = {}
     for port, decl in inputs.items():
-        type_name = decl.get("type") if isinstance(decl, dict) else None
-        if type_name in objects:
-            result[port] = type_name
+        found = _object_element(decl.get("type") if isinstance(decl, dict) else None, objects)
+        if found is not None:
+            result[port] = found
     return result
 
 
@@ -147,40 +160,104 @@ def _key(job: str | None, rest: str) -> str:
 
 
 def inject_boundary_ids(
-    boundary: dict | None, workflow: dict, id_gen: IdGenerator, job: str | None = None
+    boundary: dict | None,
+    workflow: dict,
+    id_gen: IdGenerator,
+    job: str | None = None,
+    warnings: list | None = None,
 ) -> dict | None:
     """Return `boundary` with each Object input's view carrying an ``_id``.
 
-    For every Object-bearing entry input, ensure ``boundary.inputs[port].view`` exists,
-    fill any declared view field the user omitted with a typed default, and mint ``_id``
-    (keyed by the port, and by `job` where the run names one) unless one is already
-    present -- so a result boundary fed back in round-trips its ids. `workflow` must be
-    the ``_id``-injected document (so the view schema includes ``_id``). Returns
-    `boundary` unchanged when it is None or has no Object inputs. Mutates a deep copy,
-    not the caller's dict."""
+    For every Object-bearing entry input -- each element, for an Array of Objects --
+    ensure its view exists, fill any declared view field the user omitted with a typed
+    default, and mint ``_id`` (keyed by the port, ``plates[1]`` for an element, and by
+    `job` where the run names one) unless one is already present -- so a result boundary
+    fed back in round-trips its ids. `workflow` must be the ``_id``-injected document
+    (so the view schema includes ``_id``). Returns `boundary` unchanged when it is None
+    or has no Object inputs. Mutates a deep copy, not the caller's dict.
+
+    A view may be written in part (D59 E): the fields it leaves out take their type's
+    default. That is a value the run makes up, so each element that needed one is
+    reported -- an `entry_input_defaulted` `RunWarning` appended to `warnings`, naming
+    the fields. ``_id`` is never among them: minting it is this feature's identity, not
+    a default. A view that is not a mapping (an Array's: not a list of mappings, in the
+    shape of its spots) is refused rather than replaced."""
     obj_inputs = entry_object_inputs(workflow)
     if boundary is None or not obj_inputs:
         return boundary
     out = copy.deepcopy(boundary)
     inputs = out.setdefault("boundary", {}).setdefault("inputs", {})
-    for port, type_name in obj_inputs.items():
-        schema = _view_schema(workflow, type_name)
+    for port, (type_name, depth) in obj_inputs.items():
         desc = inputs.setdefault(port, {})
-        view = desc.get("view")
-        if not isinstance(view, dict):
-            view = {}
-        # Fill declared non-`_id` fields the user omitted with typed defaults, so the
-        # seeded view conforms (closed-shape: exactly the declared fields).
-        for field, descriptor in schema.items():
-            if field != RESERVED_ID and field not in view:
-                view[field] = _default_field(descriptor)
-        if not view.get(RESERVED_ID):
-            view[RESERVED_ID] = id_gen.new_id(_key(job, f"boundary:{port}"))
-        desc["view"] = view
+        views = _BoundaryViews(
+            port, depth, _view_schema(workflow, type_name), "view" in desc,
+            id_gen, job, warnings,
+        )
+        desc["view"] = views.walk(desc.get("view"), desc.get("spot"), (), 0)
     return out
 
 
-def _object_output_ports(definition: dict | None) -> tuple[list[str], dict[str, str]]:
+class _BoundaryViews:
+    """Completes one boundary port's view(s): `walk` follows its spot binding as deep as
+    the port nests Arrays, and `complete` fills, reports and mints one Object's view."""
+
+    def __init__(self, port, depth, schema, supplied, id_gen, job, warnings) -> None:
+        self.port, self.depth, self.schema, self.supplied = port, depth, schema, supplied
+        self.id_gen, self.job, self.warnings = id_gen, job, warnings
+
+    def walk(self, view, spots, index: tuple, level: int):
+        """One view per spot: the spots say how many Objects there are, so an omitted
+        view is that many empty ones."""
+        from ofplang.run.runner.runner import RunnerError
+        from ofplang.schedule.core.identifiers import format_element
+
+        if level == self.depth:
+            return self.complete(view, index)
+        items = spots if isinstance(spots, list) else []
+        if view is None:
+            view = [None] * len(items)
+        elif not isinstance(view, list):
+            raise RunnerError(
+                f"boundary input {format_element(self.port, index)!r}: an Array of Objects "
+                f"takes a list of views, one per spot, not {type(view).__name__}"
+            )
+        return [
+            self.walk(item, items[i] if i < len(items) else None, (*index, i), level + 1)
+            for i, item in enumerate(view)
+        ]
+
+    def complete(self, view, index: tuple) -> dict:
+        from ofplang.run.runner.job import RunWarning
+        from ofplang.run.runner.runner import RunnerError
+        from ofplang.schedule.core.identifiers import format_element
+
+        label = format_element(self.port, index)
+        if view is None:
+            view = {}
+        elif not isinstance(view, dict):
+            raise RunnerError(
+                f"boundary input {label!r}: its view must be a mapping of view fields, "
+                f"not {type(view).__name__}"
+            )
+        # Fill declared non-`_id` fields the user omitted with typed defaults, so the
+        # seeded view conforms (closed-shape: exactly the declared fields) -- and say so.
+        filled = [f for f in self.schema if f != RESERVED_ID and f not in view]
+        for field in filled:
+            view[field] = _default_field(self.schema[field])
+        if filled and self.warnings is not None:
+            written = "was written without" if self.supplied else "was not supplied, so has"
+            self.warnings.append(RunWarning(
+                "entry_input_defaulted",
+                f"entry input {label!r} {written} view field(s) {filled}; "
+                f"they run on their type's default",
+                self.job or "",
+            ))
+        if not view.get(RESERVED_ID):
+            view[RESERVED_ID] = self.id_gen.new_id(_key(self.job, f"boundary:{label}"))
+        return view
+
+
+def object_output_ports(definition: dict | None) -> tuple[list[str], dict[str, str]]:
     """From a process definition's ``objects`` section, return ``(created, mapped)``:
     ``created`` = object output ports listed under ``objects.create``; ``mapped`` =
     ``{output_port: input_port}`` from ``objects.map`` (identity carried through)."""
@@ -239,7 +316,7 @@ def stamp_object_ids(
 
     `node` is the workflow provenance (a node-path tuple, or None) and `job` which job of
     a joint run this is (or None); `inputs` are the op's input views."""
-    created, mapped = _object_output_ports(definition)
+    created, mapped = object_output_ports(definition)
     for port in (*mapped, *created):
         if not _declares_id(output_schema, port):
             raise DeviceComputationError(
@@ -247,11 +324,23 @@ def stamp_object_ids(
                 f"labcode Object type must be _id-injected -- run via LabcodeRunner",
                 code="missing_object_id",
             )
-    node_key = "/".join(node) if node else "?"
+    # An iteration index is an int in the path (`Read/1`): rendered as its number, so a
+    # path without one keys exactly as it always has.
+    node_key = "/".join(str(step) for step in node) if node else "?"
     for port, src in mapped.items():
         view = outputs.get(port)
         src_view = inputs.get(src)
-        if isinstance(view, dict) and isinstance(src_view, dict) and RESERVED_ID in src_view:
+        # Every Object entering an op carries an `_id` -- minted at the boundary or at
+        # its create, and carried since -- so an input without one is a broken
+        # invariant. Said here rather than letting the output keep whatever `_id` it
+        # had (a created default's `""`): the identity would be lost without a word.
+        if not (isinstance(src_view, dict) and src_view.get(RESERVED_ID)):
+            raise DeviceComputationError(
+                f"mapped Object output {port!r} cannot carry an identity: its input "
+                f"{src!r} has no {RESERVED_ID!r}",
+                code="missing_object_id",
+            )
+        if isinstance(view, dict):
             view[RESERVED_ID] = src_view[RESERVED_ID]
     for port in created:
         view = outputs.get(port)

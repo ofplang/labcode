@@ -74,26 +74,29 @@ port names**, each bound to that port's view value (Pure Data or an Object's vie
 — as in a v0 §22 `python_script_processes` script. External `import` is allowed; there is
 no sandbox.
 
-**Partial outputs.** Unlike v0 §22.2 (which requires the script to return *every* output
-exactly), a labcode process script `return`s only the outputs it **computes** — a subset.
-The backend fills the rest:
+**Object outputs need not be returned.** As in v0 §22.2, a labcode process script
+returns its outputs as a mapping, and **every Pure Data output it declares must be in
+it**: a measurement nothing computed has no value to give, and a default would be a
+made-up reading. One left out fails the operation (`script_output_names`), as does a
+returned name that is not a declared output (this catches a typo'd name). Each returned
+value must conform to its port's type.
+
+An **Object** output may be left out, because labcode can supply it without making a
+value up:
 
 - an Object output declared in `objects.map` is **carried from its input** (the same
   Object, its view unchanged) — so a pass-through need not restate it;
-- any other unset output gets a **typed default** for its type.
+- an Object output declared in `objects.create` gets its type's **default view** (and a
+  freshly minted `_id`, §4.2). That view is a value labcode made up, so the run reports it
+  (`output_view_defaulted`, once per process and port); returning the view says what it
+  is, and the warning goes away. `_id` is never part of what is reported (§4.2).
 
-The script's returned values override these. Each returned value must conform to its port's
-type, and **returning a name that is not a declared output is an error** (this catches a
-typo'd output name). A §22.2-strict script — one that returns every output explicitly —
-works unchanged.
-
-So for `read` (input `plate`, outputs `plate` via `objects.map` + `od`), all three are
-equivalent to returning `{"plate": plate, "od": 0.42}`… except the defaulted forms:
+So for `read` (input `plate`, outputs `plate` via `objects.map` + `od`):
 
 ```python
 return {"plate": plate, "od": 0.42}   # explicit
 return {"od": 0.42}                    # plate carried by objects.map
-return {}                              # plate carried; od defaults to 0.0
+return {}                              # fails: od is not returned
 ```
 
 ### 1.3 `x-labcode` on a transport route
@@ -645,15 +648,20 @@ For a dispatched `(process, mode)`, labcode resolves the code to run in this ord
 
 1. the mode's `x-labcode.script.code` (2 — the labcode device script), else
 2. the workflow process's own `script.code` (1 — a v0 §22 script process), else
-3. none — the operation runs as a **typed-default no-op** (its outputs are typed
-   defaults; a device not yet scripted).
+3. none — the operation runs as a **no-op** (a device not yet scripted): its Object
+   outputs are supplied as above (§1.2), and a Pure Data output, which only a script
+   could compute, fails the operation (`script_output_names`).
 
 **Exclusivity (error).** A process MUST NOT carry both a workflow `script` (1) and an env
 `x-labcode.script` (2) on any of its modes; that is ambiguous and is rejected.
 
-**Typed-default reachability (warning).** A process with neither (1) nor (2) on any mode
-will run as a typed-default no-op. This is allowed — convenient while mocking a device —
-but `lc run` warns about it, so an unimplemented device is not silently a no-op.
+**No-op reachability (warning, or error).** A process with neither (1) nor (2) on any
+mode will run as a no-op. This is allowed — convenient while mocking a device — but `lc
+run` warns about it, so an unimplemented device is not silently a no-op. A process that
+also declares a **Pure Data output** is refused instead: every run of it would fail, so
+it fails before anything runs. A process with a script on some modes and not others is
+not refused — which mode runs is the scheduler's choice — and fails only if a mode
+without one is chosen.
 
 **Transport and replenishment routes have no such chain.** There is nothing for them to
 fall back to: a workflow describes neither a physical move nor a refill, so the route's
@@ -744,13 +752,17 @@ An Object's `_id` is set at its two points of origin, then **carried** everywher
 `objects.map` and transport copy the whole view, so `_id` propagates for free:
 
 - **`objects.create`** — a newly created Object's `_id` is minted when the operation
-  produces it (in the backend's output fill). A device script need not know about `_id`:
-  it returns only what it computes, and the fill supplies `_id` (like any other unset
-  output, §1.2).
+  produces it. A device script need not know about `_id`: it returns the view (or leaves
+  the Object out, §1.2), and labcode supplies `_id`.
 - **run boundary** — a whole-workflow Object *input* enters at the boundary; `lc run`
-  mints its `_id` (filling any other declared view field with a typed default so the
-  seeded value conforms), **unless the boundary already carries one** — so a result
-  boundary fed back in round-trips its ids.
+  mints its `_id`, **unless the boundary already carries one** — so a result boundary fed
+  back in round-trips its ids. An **Array of Objects** is one Object per element: its
+  `view`, if given, is a list of views, one per spot, and each element gets its own `_id`.
+  A view may be written in part: a declared field it leaves out takes its type's default,
+  and the run reports which (`entry_input_defaulted`, once per element). A view that is
+  not a mapping is refused, not replaced.
+- **What is reported.** `_id` is never in a warning: minting it is this feature, not a
+  default. Only a declared view field labcode had to fill is.
 - **`objects.map`** — a mapped Object output carries its input's `_id` unchanged
   (identity preserved), even if a §22.2-strict script returned the port explicitly.
 
@@ -759,16 +771,16 @@ An Object's `_id` is set at its two points of origin, then **carried** everywher
 Ids come from a swappable generator (`labcode.idgen.IdGenerator`). The default
 (`SeededUuid4Generator`) mints **reproducible** uuid4-shaped ids from a seed and a
 *provenance key* — the node instance + output port for a create, the port name for a
-boundary input — **not** draw order. So the same workflow yields the same ids on every
+boundary input (`plates[1]` for an element of an Array) — **not** draw order. So the same workflow yields the same ids on every
 run, and the wall-clock backend's jittering completion order cannot change them (which is
 what keeps checked-in example observations stable). A real run wanting globally-unique
 ids per physical Object swaps in `RealUuid4Generator` (via
 `labcode_backend_factory(id_generator=...)`).
 
-> The provenance key is the runner's node-instance identity + port. Today each create
-> node runs once, so node-path + port is unique; when dynamic control flow (e.g.
-> `do_while`) is added, that node-instance identity must include the iteration index so
-> ids stay unique and reproducible.
+> The provenance key is the runner's node-instance identity + port. An invocation of an
+> expanded `map` / `fold` has its iteration index in its node path (`Load/2`), so each
+> invocation's creates key apart and stay reproducible. Dynamic control flow
+> (`do_while`) is not run.
 
 ## 5. Not yet in this version (roadmap)
 

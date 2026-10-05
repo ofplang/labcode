@@ -79,11 +79,38 @@ def test_exclusivity_of_workflow_and_env_scripts():
     assert any("exclusive" in e for e in result.errors)
 
 
-def test_typed_default_is_a_warning_not_an_error():
-    # A process with neither (1) nor (2) will run as a typed-default no-op: allowed, warned.
+def test_a_no_op_is_a_warning_not_an_error():
+    # A process with neither (1) nor (2) runs as a no-op: allowed -- a device not scripted
+    # yet -- and warned about.
     result = validate_dialect({"processes": {}}, _env({"id": "v0", "duration": 3}))
     assert result.ok
-    assert any("typed-default" in w for w in result.warnings)
+    assert any("no-op" in w for w in result.warnings)
+
+
+def test_a_no_op_that_would_have_to_compute_a_value_is_refused():
+    # ... unless it declares a Pure Data output: a no-op computes nothing, so that output
+    # could only be made up, and every run of it would fail. Refused before it runs (D59).
+    workflow = {"processes": {"m": {
+        "kind": "atomic", "outputs": {"od": {"type": "Float", "phase": "data"}},
+    }}}
+    result = validate_dialect(workflow, _env({"id": "v0", "duration": 3}))
+    assert not result.ok
+    assert any("'od'" in e and "only a script can compute" in e for e in result.errors)
+
+
+def test_a_no_op_with_only_object_outputs_is_a_warning():
+    # An Object output is carried (objects.map) or created without a script, so a process
+    # with nothing else to produce can still run as a no-op.
+    workflow = {"processes": {"hold": {
+        "kind": "atomic",
+        "inputs": {"plate": {"type": "Plate", "phase": "data"}},
+        "outputs": {"plate": {"type": "Plate", "phase": "data"}},
+        "objects": {"map": {"outputs.plate": "inputs.plate"}},
+    }}}
+    env = {"processes": {"hold": {"modes": [{"id": "v0", "duration": 3}]}}}
+    result = validate_dialect(workflow, env)
+    assert result.ok
+    assert any("'hold'" in w and "no-op" in w for w in result.warnings)
 
 
 # -- transport routes ----------------------------------------------------------

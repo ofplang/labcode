@@ -6,6 +6,50 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.0 — 2026-10-05
+
+labcode runs a protocol repeated over every plate (`map` / `fold`), and stops making up
+a value a script did not compute.
+
+### Added
+
+- **`map` and `fold`** run, as ofplang-schedule 0.13 expands them and ofplang-run 0.13
+  executes the expansion. An **Array of Objects** at the run boundary is one Object per
+  element: its `view` is a list of views, one per spot, and each element gets its own
+  `_id`, keyed by the element (`plates[1]`, §4.3). An invocation's node path carries its
+  iteration index, and so do the keys of what it creates.
+- **What a run made up, it says** (`lc run` prints each as `lc run: warning: ...`):
+  - `entry_input_defaulted` — a boundary view written in part, or not at all: the
+    declared fields it left out run on their type's default (§4.2). Once per Object.
+  - `output_view_defaulted` — a script that did not return an Object it created: the
+    view runs on its type's default (§1.2). Once per process and port.
+  - `_id` is never reported; minting it is labcode's identity, not a default.
+
+### Changed — may need your attention
+
+- **A script must return every Pure Data output it declares** (§1.2). Until now one left
+  out took its type's default — `return {}` from a `read` gave `od: 0.0`, a reading
+  nothing took. It now fails the operation (`script_output_names`), as v0 §22.2 does. An
+  Object output may still be left out: a mapped one is carried, a created one gets its
+  default view (reported).
+- **A process with no script anywhere that declares a Pure Data output is refused** by
+  `lc run` before anything runs (§2): a no-op can compute nothing, so every run of it
+  would fail. One with only Object outputs still runs as a no-op, with the warning it
+  always had. A process with a script on some modes only fails if a mode without one is
+  chosen.
+- **A boundary view that is not a mapping** (or, for an Array, not a list of them) is
+  refused. It used to be replaced by an empty view without a word.
+- **An Object mapped from an input with no `_id`** fails the operation
+  (`missing_object_id`). No run can reach this; it is there to catch a broken invariant
+  early.
+- A v0 §22 workflow script in a language other than Python fails the operation
+  (`script_language`) instead of running as a no-op.
+- Requires ofplang-validate 0.3, ofplang-schedule 0.13 and ofplang-run 0.13
+  (specification revision 0.4).
+
+`lc export` is unchanged; drawing a run that has `map` / `fold` invocations in it is not
+yet supported there.
+
 ## 0.9.0 — 2026-09-28
 
 labcode can now drive a lab over **LADS OPC UA** as well as SiLA2, and gains `lc export`.
