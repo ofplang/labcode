@@ -6,6 +6,25 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.1 — 2026-10-07
+
+labcode follows specification revision 0.5. No code changes; the siblings move.
+
+### Changed — may need your attention
+
+- **A composite returns every output it declares.** An output port with no `returns`
+  entry is now `output_not_returned`, and a `returns` entry naming no output port is
+  `return_port_not_found` (ofplang-validate 0.4). Until now a Pure Data output could go
+  unreturned.
+- **The `scheduling` section is gone from the language.** It is now an unknown key, and
+  `scheduling_policies` in `features` an unknown feature. Delete the section and the
+  feature name; nothing else depended on them, and no plan used them.
+- An Object that comes in at the boundary and is returned as it came is now planned and
+  run, moved to the spot its output is bound to (ofplang-schedule 0.13.1, ofplang-run
+  0.13.1).
+
+Requires ofplang-validate 0.4, ofplang-schedule 0.13.1 and ofplang-run 0.13.1.
+
 ## 0.10.0 — 2026-10-05
 
 labcode runs a protocol repeated over every plate (`map` / `fold`), and stops making up
