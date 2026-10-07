@@ -6,6 +6,29 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.2 — 2026-10-07
+
+No code changes; the siblings move.
+
+### Added
+
+- **A `map` / `fold` over a list of values runs.** `lc run` is given a list of labels,
+  volumes or the like and makes one invocation per element: the runner counts each
+  list and states its length in the document's `expansion` (ofplang-schedule SPEC
+  §6.13), and the scheduler expands by it (ofplang-schedule 0.14, ofplang-run 0.14).
+  Until now such a workflow was refused (`array_length_unknown`).
+
+### Changed — may need your attention
+
+- **A list zipped with an Array of plates of another length is refused before the run
+  starts** (`each_length_mismatch`), where it used to stop that job at its first check.
+- **A structured node's `outputs` is checked as the specification says** (ofplang-validate
+  0.4.1). An entry with no `mode` is `missing_required_key`, and a reference to an output
+  the node does not expose -- one its `outputs` drops, or one dropped by default -- is
+  `output_not_exposed`. Both passed validation before.
+
+Requires ofplang-validate 0.4.1, ofplang-schedule 0.14.1 and ofplang-run 0.14.1.
+
 ## 0.10.1 — 2026-10-07
 
 labcode follows specification revision 0.5. No code changes; the siblings move.

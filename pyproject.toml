@@ -62,8 +62,16 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# `ofplang-validate>=0.4`, `ofplang-schedule>=0.13.1` and `ofplang-run>=0.13.1` are
-# required together: they implement specification revision 0.5, and `lc` validates at its
+# `ofplang-validate>=0.4.1`, `ofplang-schedule>=0.14.1` and `ofplang-run>=0.14.1` are
+# required together. A `map` / `fold` over a list of values is planned and run from
+# these (the run states each list's length as the document's `expansion`, the scheduler
+# expands by it), and the front door and the scheduler's reader agree again on what a
+# structured node's `outputs` may say: an entry with no mode, and a reference to an
+# output the node does not expose, are refused by both (validate 0.4.1), where before
+# validate passed what the reader refused.
+#
+# The `ofplang-validate>=0.4`, `ofplang-schedule>=0.13.1` and `ofplang-run>=0.13.1`
+# floors they replace were required together: they implement specification revision 0.5, and `lc` validates at its
 # front door with the one validate and plans and runs with the others, so the three have
 # to agree on what is valid. Under validate 0.3 a composite could leave an output
 # unreturned that the scheduler's reader now refuses, and a `scheduling` section passed
@@ -76,7 +84,7 @@ classifiers = [
 # labcode keys each plate's `_id` by its element. `RunResult.run_warnings`, which `lc run`
 # fills with what labcode defaulted, is new in run 0.13 too.
 #
-# 🔴 The schedule `<0.14` bound is a bound, not a floor: 0.10 refuses two jobs binding one
+# 🔴 The schedule upper bound is a bound, not a floor: 0.10 refuses two jobs binding one
 # boundary spot where it used to warn, and 0.12 refuses a plan it can show has no
 # schedule before the solve instead of returning `unknown`. Both change what happens to
 # a document this package hands over rather than anything it calls.
@@ -95,9 +103,9 @@ dependencies = [
 # would pick up the next such sibling and start refusing its own examples. The
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
-    "ofplang-validate>=0.4,<0.5",
-    "ofplang-schedule>=0.13.1,<0.14",
-    "ofplang-run>=0.13.1,<0.14",
+    "ofplang-validate>=0.4.1,<0.5",
+    "ofplang-schedule>=0.14.1,<0.15",
+    "ofplang-run>=0.14.1,<0.15",
 ]
 
 [project.urls]
