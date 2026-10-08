@@ -6,6 +6,22 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.3 — 2026-10-08
+
+No code changes; the siblings move.
+
+### Added
+
+- **A `branch` runs where the boundary decides its arm.** A branch whose condition is
+  an entry input -- a flag, or one flag per element inside a `map` -- runs the arm the
+  flag picks: the runner states each arm in the document's `expansion.arms`
+  (ofplang-schedule SPEC §6.13) and the scheduler expands the branch with it
+  (ofplang-schedule 0.15, ofplang-run 0.15). A flag left out is `false` and reported
+  (`entry_input_defaulted`). A branch whose condition is produced during the run is
+  refused before anything runs (`branch_arm_unknown`).
+
+Requires ofplang-schedule 0.15 and ofplang-run 0.15 (ofplang-validate 0.4.1 as before).
+
 ## 0.10.2 — 2026-10-07
 
 No code changes; the siblings move.
