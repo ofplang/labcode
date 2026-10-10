@@ -6,6 +6,31 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.4 — 2026-10-10
+
+No code changes; the siblings move.
+
+### Added
+
+- **A `branch` runs on a condition produced during the run.** A branch whose
+  condition is made by an activity -- a script's verdict on a measured value, an
+  instrument's flag -- runs the arm the value picks. The scheduler plans the branch on
+  its `then` arm until the value exists and lets nothing of it start before then,
+  marking the moment in the plan with a `decision` (ofplang-schedule SPEC §6.14); the
+  run states the arm in the document's `expansion.arms` as soon as the value is
+  recorded and replans (ofplang-schedule 0.16, ofplang-run 0.16). The arm not planned
+  is checked without a solve, and a workflow whose other arm could never be planned is
+  refused before anything runs (`arm_unplannable`). In 0.10.3 such a branch was refused
+  (`branch_arm_unknown`).
+
+### Known limitations
+
+- **`lc export` cannot read a plan that waits on such a branch yet.** The export viewer
+  does not know the `decision` entry, so a plan with one is refused; plans without one
+  are unaffected. Planning and running are not.
+
+Requires ofplang-schedule 0.16 and ofplang-run 0.16 (ofplang-validate 0.4.1 as before).
+
 ## 0.10.3 — 2026-10-08
 
 No code changes; the siblings move.

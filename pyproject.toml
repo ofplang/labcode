@@ -62,7 +62,13 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# `ofplang-schedule>=0.15` and `ofplang-run>=0.15` move together: a `branch` whose arm
+# `ofplang-schedule>=0.16` and `ofplang-run>=0.16` move together: a `branch` whose
+# condition is produced during the run -- a script's verdict on a measurement -- runs
+# from these (the scheduler plans it on an assumed arm and holds it back until the
+# condition exists, the run states the arm once the value is recorded and replans), and
+# run 0.16 needs schedule 0.16.
+#
+# `ofplang-schedule>=0.15` and `ofplang-run>=0.15` moved together: a `branch` whose arm
 # the boundary decides runs from these (the run states each arm as the document's
 # `expansion.arms`, the scheduler expands by it), and run 0.15 needs schedule 0.15.
 #
@@ -108,8 +114,8 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.4.1,<0.5",
-    "ofplang-schedule>=0.15,<0.16",
-    "ofplang-run>=0.15,<0.16",
+    "ofplang-schedule>=0.16,<0.17",
+    "ofplang-run>=0.16,<0.17",
 ]
 
 [project.urls]
