@@ -6,6 +6,34 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.5 — unreleased
+
+No code changes; the siblings move.
+
+### Added
+
+- **A `do_while` runs.** A loop whose condition is read during the run -- a script's
+  verdict on each measurement -- is planned to end after the invocation it is in, and
+  grows by one invocation each time the reading says go on, up to `max_iterations`
+  (ofplang-schedule 0.17, ofplang-run 0.17). Stopping at the limit is reported
+  (`loop_exhausted`), never failed.
+- **A branch or loop decided during the run keeps its places.** While it is open, the
+  plan keeps every spot any of its outcomes may need (a `reservation`), so a second job
+  sharing the only sink or reader waits outside instead of the two locking when the
+  outcome is not the one assumed. Whatever such a region hands on leaves through a
+  `gate` in the plan.
+
+### Changed
+
+- A run no longer skips planning a branch's other arm on a replan: what the branch keeps
+  for itself comes from planning both arms, so a branch whose other arm could never be
+  planned is refused (`arm_unplannable`) on any plan, not only the first.
+
+### Known limitations
+
+- **`lc export` cannot read such a plan yet.** The export viewer does not know the
+  `decision`, `gate` and `reservation` entries; plans without them are unaffected.
+
 ## 0.10.4 — 2026-10-10
 
 No code changes; the siblings move.
