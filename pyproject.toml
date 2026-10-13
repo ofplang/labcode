@@ -62,7 +62,12 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# `ofplang-schedule>=0.17` and `ofplang-run>=0.17` move together: a `do_while` whose
+# `ofplang-schedule>=0.18` and `ofplang-run>=0.18` move together: a replan after a branch
+# decided during the run on the arm not assumed, or a loop going on, is constructed from
+# the plan it replaces, so a run whose solver runs out of budget no longer stops there
+# (ofplang-schedule design.md D67); run 0.18 needs schedule 0.18.
+#
+# `ofplang-schedule>=0.17` and `ofplang-run>=0.17` moved together: a `do_while` whose
 # condition a script reads during the run runs from these, and a branch or loop decided
 # only during the run keeps the spots it may yet need while it is open, so jobs sharing a
 # machine no longer lock on an assumed outcome (ofplang-schedule design.md D65, D66);
@@ -120,8 +125,8 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.4.1,<0.5",
-    "ofplang-schedule>=0.17,<0.18",
-    "ofplang-run>=0.17,<0.18",
+    "ofplang-schedule>=0.18,<0.19",
+    "ofplang-run>=0.18,<0.19",
 ]
 
 [project.urls]

@@ -6,6 +6,25 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.6 — unreleased
+
+No code changes; the siblings move.
+
+### Changed
+
+- **A replan after a branch or loop decided during the run is always constructible.** A
+  branch decided on the arm not assumed, or a loop going on, used to leave the scheduler
+  with only a search; the plan it replaces, with that region's new work spliced in, is
+  now its starting point, and what a replan gets if the search runs out of time
+  (ofplang-schedule 0.18, ofplang-run 0.18, design.md D67).
+
+### Fixed (already picked up by 0.10.5 through ofplang-schedule 0.17.1 and 0.17.2)
+
+- A replan could come back infeasible -- stopping every job of a run -- when work that
+  ran late left an Object resting where an open branch keeps its spots, or when a branch
+  inside a loop was decided before the loop's own reading and another job took the spot
+  the loop's next invocation needs.
+
 ## 0.10.5 — 2026-10-13
 
 No code changes; the siblings move.
