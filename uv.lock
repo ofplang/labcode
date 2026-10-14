@@ -689,8 +689,8 @@ requires-dist = [
     { name = "asyncua", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "ofplang-export", marker = "extra == 'export'", specifier = ">=0.1,<0.2" },
-    { name = "ofplang-run", specifier = ">=0.19,<0.20" },
-    { name = "ofplang-schedule", specifier = ">=0.19,<0.20" },
+    { name = "ofplang-run", specifier = ">=0.20,<0.21" },
+    { name = "ofplang-schedule", specifier = ">=0.20,<0.21" },
     { name = "ofplang-validate", specifier = ">=0.4.1,<0.5" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.20" },
@@ -1206,30 +1206,30 @@ wheels = [
 
 [[package]]
 name = "ofplang-run"
-version = "0.19.0"
+version = "0.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ofplang-schedule" },
     { name = "ofplang-validate" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/6d/bb33085d25a6599b8548af3948b08c9010d06b89b15327f3b4485f0d9d20/ofplang_run-0.19.0.tar.gz", hash = "sha256:2185ba0b867ddf40a65e80881b534162b87ad00cd1a96da5103821329fecab98", size = 345096, upload-time = "2026-10-14T05:46:21.213Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/e4/bc0f190e80564f6f8995de09273dbc6d16437441a90cbecdbbdb2b8452cb/ofplang_run-0.20.0.tar.gz", hash = "sha256:3ed9d55054120e4aa3254be3d2e48ebe1fe6900c3493896a029c6260e54f4dbb", size = 347937, upload-time = "2026-10-14T14:06:13.559Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/76/a89a377f64de5e8b14e74c53ead89e3e640e488b9d3282f2f3d64f188b0f/ofplang_run-0.19.0-py3-none-any.whl", hash = "sha256:5837863a2cbf5de4b24b0e50f1985b57dcb761dacde26ab858372f9280b8210e", size = 172531, upload-time = "2026-10-14T05:46:19.495Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/b6/bc6e6e008346cb6e89ea155d676b14e4131cd38631e9511a02f4a9efade7/ofplang_run-0.20.0-py3-none-any.whl", hash = "sha256:2ef36d26d7ad20316980077a041013b2c122b6de6f74eb04750f0e08d83363de", size = 173679, upload-time = "2026-10-14T14:06:12.151Z" },
 ]
 
 [[package]]
 name = "ofplang-schedule"
-version = "0.19.0"
+version = "0.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ofplang-validate" },
     { name = "ortools" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/a6/2f9dec0e163c2edf8a622d6acf9d39fe7583e294f7508d611bb115d0d778/ofplang_schedule-0.19.0.tar.gz", hash = "sha256:be6ecec5e3fd6caf1de349483bc6e42d157c3da3ee8382ee568052576a135c05", size = 722161, upload-time = "2026-10-14T05:37:20.263Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/8d/81e5505fdea64c8d179dac7c44fb444f30f5332d3db3e2fb3cc8f8a311b2/ofplang_schedule-0.20.0.tar.gz", hash = "sha256:586ddc07a252d0f62a89ad749bbd9ee449e5dc186752fc1689cc03723925fc3e", size = 735040, upload-time = "2026-10-14T13:59:21.963Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/86/8540c0146af2b195aa71a36c6ec5da51c412471b740a0e22f3f367d168b5/ofplang_schedule-0.19.0-py3-none-any.whl", hash = "sha256:5c832809c3916ec68dec5bc275930b2a7aeb925cf0ddd93d5ec629ac47a64c45", size = 333738, upload-time = "2026-10-14T05:37:18.803Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/23/c0c0f37851e6c90f008b9c7d4c11454a4b2c8f16c01f4e5adde6b3f55285/ofplang_schedule-0.20.0-py3-none-any.whl", hash = "sha256:9fa3095235c1ae230c312c9476a8a8377f4401b4360897ce7cd36e5c9c2cafa9", size = 339470, upload-time = "2026-10-14T13:59:20.041Z" },
 ]
 
 [[package]]

@@ -6,6 +6,18 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.8 — 2026-10-14
+
+No code changes; the siblings move.
+
+### Changed
+
+- **A map or fold over a list an activity makes is run.** It used to be refused before
+  the run (`array_length_unknown`). It is planned on one invocation until the list
+  exists, then counted and planned again -- none, one or many -- before anything of it
+  runs (ofplang-schedule 0.20, ofplang-run 0.20, design.md D70). So is a map over one
+  inner list of a nested list given at the boundary.
+
 ## 0.10.7 — 2026-10-14
 
 No code changes; the siblings move.

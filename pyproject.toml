@@ -62,7 +62,11 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
-# `ofplang-schedule>=0.19` and `ofplang-run>=0.19` move together: a first plan with a
+# `ofplang-schedule>=0.20` and `ofplang-run>=0.20` move together: a `map` / `fold` whose
+# length is a value made during the run is planned on one invocation and counted by the
+# run (ofplang-schedule design.md D70); run 0.20 needs schedule 0.20.
+#
+# `ofplang-schedule>=0.19` and `ofplang-run>=0.19` moved together: a first plan with a
 # branch or loop decided during the run is constructed where the solver comes back
 # without one, so `lc run` starts where it used to stop at `unknown` (ofplang-schedule
 # design.md D68); run 0.19 needs schedule 0.19.
@@ -130,8 +134,8 @@ dependencies = [
 # bounds cannot protect what is already on PyPI without one, which is why they go
 # in now rather than at the first breakage.
     "ofplang-validate>=0.4.1,<0.5",
-    "ofplang-schedule>=0.19,<0.20",
-    "ofplang-run>=0.19,<0.20",
+    "ofplang-schedule>=0.20,<0.21",
+    "ofplang-run>=0.20,<0.21",
 ]
 
 [project.urls]
