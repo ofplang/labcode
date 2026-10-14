@@ -6,6 +6,23 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.7 — unreleased
+
+No code changes; the siblings move.
+
+### Changed
+
+- **A first plan the solver comes back from without a schedule gets the built one.** A
+  first plan that ran out of time used to come back `unknown`, and `lc run` stopped
+  there; where a schedule can be constructed it is now the plan, marked
+  `plan_constructed_after_solver` (ofplang-schedule 0.19, ofplang-run 0.19, design.md
+  D68).
+- **First plans with branches and loops decided during the run scale further.** The
+  constructed planner builds them on laboratories with many interchangeable machines and
+  arms, where it used to stop at two jobs, and a plan no order can keep the regions'
+  spots for is refused before the solve as `reservation_deadlocked` (ofplang-schedule
+  0.18.2 and 0.19).
+
 ## 0.10.6 — 2026-10-13
 
 No code changes; the siblings move.
