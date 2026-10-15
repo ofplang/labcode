@@ -6,6 +6,17 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## Unreleased
+
+### Added
+
+- **`lc run --first-plan-max-time SECONDS` and `--replan-max-time SECONDS`**, the same
+  flags as `ofp-run run`'s. The first plan now gets 60 seconds of search by default (`0`
+  for none): past it the run starts on the best schedule found, or on a constructed one,
+  so a large run no longer waits on a search that may take hours (ofplang-run 0.20.1).
+  Where nothing can be constructed either, the first plan is solved to the end as before.
+  Replans keep no budget unless `--replan-max-time` gives one.
+
 ## 0.10.8 — 2026-10-14
 
 No code changes; the siblings move.

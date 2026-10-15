@@ -34,6 +34,7 @@ from pathlib import Path
 import yaml
 from ofplang.run import FrontDoorResult, front_door_check
 from ofplang.run.runner import (
+    DEFAULT_FIRST_PLAN_MAX_TIME,
     DEFAULT_MAX_TICKS,
     ContractSyntaxError,
     RunnerError,
@@ -121,6 +122,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="switch the consumable model off (ofplang-schedule §4.7.3): the environment's"
              " resource declarations are shape-checked but nothing is applied, so a bench that"
              " declares stocks runs without the boundary saying what they started with",
+    )
+    p.add_argument(
+        # Same flags and meaning as `ofp-run run`: the solver's budget on the first plan
+        # and on every replan after it, handed to the runner as they are.
+        "--first-plan-max-time", type=float, default=DEFAULT_FIRST_PLAN_MAX_TIME,
+        metavar="SECONDS",
+        help=f"the solver's budget on the first plan (default {DEFAULT_FIRST_PLAN_MAX_TIME:g}"
+             "; 0 for none). Past it the first plan is the schedule found so far or the one"
+             " constructed, so the run starts; where there is neither, it is solved to the"
+             " end after all",
+    )
+    p.add_argument(
+        "--replan-max-time", type=float, default=None, metavar="SECONDS",
+        help="the solver's budget on every replan (not the first plan); by default each is"
+             " solved to the end. A replan it does not finish gets a schedule constructed"
+             " from the plan it replaces -- after an overrun, a branch decided either way or"
+             " a loop going on -- but not after a machine went down or a job arrived, where"
+             " the run can then stop",
     )
     p.add_argument("-o", "--output", metavar="OUT", help="write the final status YAML here")
     p.add_argument("--boundary-out", metavar="FILE", help="write the result boundary document here")
@@ -421,6 +440,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             speed=args.speed,
             observation_out=args.observation_out,
             ignore_resources=args.ignore_resources,
+            first_plan_max_time_seconds=args.first_plan_max_time,
+            replan_max_time_seconds=args.replan_max_time,
             probe=not args.no_probe,
             on_availability_change=report_availability,
             on_cadence_slip=report_cadence_slip,

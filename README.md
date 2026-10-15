@@ -128,6 +128,7 @@ lc run <workflow> --env <env>
     [--seconds-per-tick S] [--op-timeout S | --no-op-timeout] [--no-probe]
     [--max-transport-legs N] [--ignore-resources] [--trace] [--mission-id ID]
     [--object-ids seeded|real]
+    [--first-plan-max-time SECONDS] [--replan-max-time SECONDS]
 
 lc run --jobs <run doc> --env <env> [--on-job-failure continue|stop] [...]
 ```
@@ -192,6 +193,16 @@ lc run --jobs <run doc> --env <env> [--on-job-failure continue|stop] [...]
 - `--ignore-resources` — switch the consumable model off. The environment's resource
   declarations are still checked for shape but none is applied, so a bench whose devices
   declare stocks nobody is tracking runs without the boundary saying what they held.
+- `--first-plan-max-time SECONDS` — the solver's budget on the first plan: 60 seconds
+  by default, `0` for none. Past it the run starts on the best schedule the solver found,
+  or on one constructed where it found none (ofplang-schedule design.md D68), instead of
+  waiting on a search that may take hours; where nothing could be constructed either, the
+  first plan is solved to the end after all. The same flag as `ofp-run run`'s.
+- `--replan-max-time SECONDS` — the solver's budget on every replan after the first
+  plan; by default each is solved to the end. A replan it does not finish gets a schedule
+  constructed from the plan it replaces — after an overrun, a branch decided either way
+  or a loop going on — but not after a machine went down or a job arrived, where the run
+  can then stop. The same flag as `ofp-run run`'s.
 - `--trace` — record what the run did (see below). Off by default.
 - `--mission-id ID` — the campaign this run belongs to. Recorded with the run and given no
   meaning by labcode: several runs may share one, and nothing here reads it back.

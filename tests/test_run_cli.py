@@ -82,6 +82,39 @@ def test_e2e_lc_run_stamps_deterministic_object_ids(tmp_path):
     assert doc1 == yaml.safe_load(rb2.read_text(encoding="utf-8"))  # deterministic
 
 
+@pytest.mark.parametrize(
+    ("flags", "first"),
+    [([], 60.0), (["--first-plan-max-time", "0"], None), (["--first-plan-max-time", "7"], 7.0)],
+)
+def test_cli_plan_budgets_reach_the_runner(tmp_path, monkeypatch, flags, first):
+    # `--first-plan-max-time` and `--replan-max-time` are `ofp-run run`'s flags: the
+    # first plan is asked with the first (a minute by default, none at 0), and no replan
+    # is asked with it.
+    pytest.importorskip("ofplang.schedule", reason="ofplang-schedule not installed")
+    from ofplang.run.runner import rolling
+
+    asked = []
+    real = rolling.replan
+
+    def replan(*args, **kwargs):
+        asked.append(kwargs.get("max_time_seconds"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(rolling, "replan", replan)
+    code = run_cli.main([
+        str(EXAMPLES / "plate_line.workflow.yaml"),
+        "--env", str(EXAMPLES / "plate_line.env.yaml"),
+        "--boundary", str(EXAMPLES / "plate_line.boundary.yaml"),
+        "--seconds-per-tick", "0.001",
+        "--replan-max-time", "3",
+        "-o", str(tmp_path / "status.yaml"),
+        *flags,
+    ])
+    assert code == 0
+    assert asked[0] == first
+    assert set(asked[1:]) <= {3.0}
+
+
 def test_cli_observation_out_streams_the_observation_document(tmp_path):
     # `--observation-out` forwards to the runner's observation sink, so the flag produces
     # the same YAML multi-document stream `ofp-run run --observation-out` does: a header
