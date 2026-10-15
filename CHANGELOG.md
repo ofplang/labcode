@@ -6,7 +6,7 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
-## Unreleased
+## 0.10.9 — 2026-10-15
 
 ### Added
 

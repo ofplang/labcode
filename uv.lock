@@ -689,7 +689,7 @@ requires-dist = [
     { name = "asyncua", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "ofplang-export", marker = "extra == 'export'", specifier = ">=0.1,<0.2" },
-    { name = "ofplang-run", specifier = ">=0.20,<0.21" },
+    { name = "ofplang-run", specifier = ">=0.20.1,<0.21" },
     { name = "ofplang-schedule", specifier = ">=0.20,<0.21" },
     { name = "ofplang-validate", specifier = ">=0.4.1,<0.5" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
@@ -1206,16 +1206,16 @@ wheels = [
 
 [[package]]
 name = "ofplang-run"
-version = "0.20.0"
+version = "0.20.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ofplang-schedule" },
     { name = "ofplang-validate" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/e4/bc0f190e80564f6f8995de09273dbc6d16437441a90cbecdbbdb2b8452cb/ofplang_run-0.20.0.tar.gz", hash = "sha256:3ed9d55054120e4aa3254be3d2e48ebe1fe6900c3493896a029c6260e54f4dbb", size = 347937, upload-time = "2026-10-14T14:06:13.559Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/67/03c493f436d6b042f7bcc66cfee29657bd61320460c72131a6c537905a48/ofplang_run-0.20.1.tar.gz", hash = "sha256:fb73ea365388a9e5a77ddf79a384aeb89e103921aa93b8eaccd2173a67b6e1c1", size = 349270, upload-time = "2026-10-15T02:32:57.53Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/b6/bc6e6e008346cb6e89ea155d676b14e4131cd38631e9511a02f4a9efade7/ofplang_run-0.20.0-py3-none-any.whl", hash = "sha256:2ef36d26d7ad20316980077a041013b2c122b6de6f74eb04750f0e08d83363de", size = 173679, upload-time = "2026-10-14T14:06:12.151Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/da/75c87a8fc254a99b77a1e9138d3d6cd3b82ad67c21a2f9476ae4f9c50a69/ofplang_run-0.20.1-py3-none-any.whl", hash = "sha256:77baff7ac1dce0570426cda5dd0a031a2b785f1f92c2fddffe245ccffd08e3be", size = 174613, upload-time = "2026-10-15T02:32:56.17Z" },
 ]
 
 [[package]]

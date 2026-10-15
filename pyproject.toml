@@ -62,6 +62,9 @@ classifiers = [
 # every real-lab example already happens on it, and run's own floor requires it anyway
 # (an older scheduler reports a running refill free before it is).
 #
+# `ofplang-run>=0.20.1` is required: `lc run --first-plan-max-time` hands the runner
+# `first_plan_max_time_seconds`, which an older runner does not take.
+#
 # `ofplang-schedule>=0.20` and `ofplang-run>=0.20` move together: a `map` / `fold` whose
 # length is a value made during the run is planned on one invocation and counted by the
 # run (ofplang-schedule design.md D70); run 0.20 needs schedule 0.20.
@@ -135,7 +138,7 @@ dependencies = [
 # in now rather than at the first breakage.
     "ofplang-validate>=0.4.1,<0.5",
     "ofplang-schedule>=0.20,<0.21",
-    "ofplang-run>=0.20,<0.21",
+    "ofplang-run>=0.20.1,<0.21",
 ]
 
 [project.urls]
