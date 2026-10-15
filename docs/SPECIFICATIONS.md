@@ -779,8 +779,9 @@ ids per physical Object swaps in `RealUuid4Generator` (via
 
 > The provenance key is the runner's node-instance identity + port. An invocation of an
 > expanded `map` / `fold` has its iteration index in its node path (`Load/2`), so each
-> invocation's creates key apart and stay reproducible. Dynamic control flow
-> (`do_while`) is not run.
+> invocation's creates key apart and stay reproducible. An invocation of a `do_while`
+> has its index there the same way (`Clean/1/Rinse`), so a loop that goes on keys each
+> invocation's creates apart too.
 
 ## 5. Not yet in this version (roadmap)
 

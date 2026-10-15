@@ -17,6 +17,8 @@ Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` co
   Where nothing can be constructed either, the first plan is solved to the end as before.
   Replans keep no budget unless `--replan-max-time` gives one.
 
+Requires ofplang-run 0.20.1 (ofplang-schedule 0.20 and ofplang-validate 0.4.1 as before).
+
 ## 0.10.8 — 2026-10-14
 
 No code changes; the siblings move.

@@ -65,7 +65,7 @@ classifiers = [
 # `ofplang-run>=0.20.1` is required: `lc run --first-plan-max-time` hands the runner
 # `first_plan_max_time_seconds`, which an older runner does not take.
 #
-# `ofplang-schedule>=0.20` and `ofplang-run>=0.20` move together: a `map` / `fold` whose
+# `ofplang-schedule>=0.20` and `ofplang-run>=0.20` moved together: a `map` / `fold` whose
 # length is a value made during the run is planned on one invocation and counted by the
 # run (ofplang-schedule design.md D70); run 0.20 needs schedule 0.20.
 #
