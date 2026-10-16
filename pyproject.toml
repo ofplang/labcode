@@ -186,8 +186,12 @@ lads = ["asyncua>=2.0"]
 # `lc export` -- writing documents out for people to read, the single-file viewer -- is
 # optional too: validating, scheduling and running need none of it. ofplang-export reads
 # only what the ofplang specifications define, so `lc export` forwards to it unchanged,
-# as `lc validate` does. Capped at the minor version like the siblings above.
-export = ["ofplang-export>=0.1,<0.2"]
+# as `lc validate` does. Capped at the minor version like the siblings above. 0.1.10 is
+# the floor: from 0.1.8 the viewer draws the structured nodes and the decisions, gates and
+# reservations the siblings plan, from 0.1.9 a plan of several jobs -- `lc run --jobs`
+# writes them; an earlier viewer refuses it -- and 0.1.10 keeps those marks in an
+# exported SVG.
+export = ["ofplang-export>=0.1.10,<0.2"]
 # Recording a run (`lc run --trace`) is optional, and needs the SDK in whichever interpreter
 # drives the run -- which is also the one running the scripts, since labcode launches each
 # with `sys.executable`. The floors are what the code actually touches: span kinds,

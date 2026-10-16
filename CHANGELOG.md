@@ -6,6 +6,16 @@ specification the section numbers refer to is [`docs/SPECIFICATIONS.md`](docs/SP
 Releases before 0.9.0 are described in the messages of their `Release vX.Y.Z` commits
 (`git log --grep '^Release v'`).
 
+## 0.10.10 — 2026-10-16
+
+No code changes.
+
+### Changed
+
+- **`labcode[export]` requires ofplang-export 0.1.10.** An earlier viewer refuses the
+  document of a `lc run --jobs` run and cannot draw a branch, a loop or a traversal
+  decided during the run; 0.1.10 draws them, and keeps their marks in an exported SVG.
+
 ## 0.10.9 — 2026-10-15
 
 ### Added

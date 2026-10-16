@@ -688,7 +688,7 @@ requires-dist = [
     { name = "asyncua", marker = "extra == 'lads'", specifier = ">=2.0" },
     { name = "asyncua", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
-    { name = "ofplang-export", marker = "extra == 'export'", specifier = ">=0.1,<0.2" },
+    { name = "ofplang-export", marker = "extra == 'export'", specifier = ">=0.1.10,<0.2" },
     { name = "ofplang-run", specifier = ">=0.20.1,<0.21" },
     { name = "ofplang-schedule", specifier = ">=0.20,<0.21" },
     { name = "ofplang-validate", specifier = ">=0.4.1,<0.5" },
@@ -1194,14 +1194,14 @@ wheels = [
 
 [[package]]
 name = "ofplang-export"
-version = "0.1.1"
+version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/31/a0385f786b6946f4592288990b83f8bc677b41b65955502199ae496fe2cd/ofplang_export-0.1.1.tar.gz", hash = "sha256:9986b330f21802c81da6b8b80bf358babddb1858c637b94fd7a0a0e53806538e", size = 82628, upload-time = "2026-09-27T15:47:34.937Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/72/a714c9335e49431a490349f84dcf727ecb7bae4d461f6fba2e0b40d54a0b/ofplang_export-0.1.10.tar.gz", hash = "sha256:6148c96b79d00ca1c5e7cf96273558c17939e7bed59af7420b52d1f8e2acaf62", size = 104109, upload-time = "2026-10-15T11:32:28.403Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/db/24f8d8d2a7054bf1ba722278d8d2ab089aead217e252c4d0f1040cc690da/ofplang_export-0.1.1-py3-none-any.whl", hash = "sha256:6febf45b03d7856229b1e3f98974a122053dd5512437d3bd3e495a5803982aea", size = 70597, upload-time = "2026-09-27T15:47:33.342Z" },
+    { url = "https://files.pythonhosted.org/packages/85/84/5c17c86f4c88aca5882eb643343a41111d14e1bde2392becadd0c7bea9f9/ofplang_export-0.1.10-py3-none-any.whl", hash = "sha256:73630eedec7dd162ef6dcd088d19210b55e34b2bbd432601b479c1f868af723e", size = 85597, upload-time = "2026-10-15T11:32:26.93Z" },
 ]
 
 [[package]]
